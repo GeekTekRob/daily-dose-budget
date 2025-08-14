@@ -1,0 +1,4 @@
+TransactionDate,Amount,TransactionType,AccountName
+8/13/2025,"3,000.00",Manual Balance,CFCU
+8/13/2025,465.00,Manual Balance,Citizen
+8/14/2025,40.00,Debit,CFCU

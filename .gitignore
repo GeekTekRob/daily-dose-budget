@@ -1,0 +1,22 @@
+node_modules/
+client/dist/
+server/public/
+.env
+.env.*
+**/.env
+.DS_Store
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+dist/
+
+# Exclude the build instructions doc
+copilot-instructions.md
+
+# Docker
+.docker/
+.dockerignore
+docker-compose.override.yml
+docker-compose.local.yml
