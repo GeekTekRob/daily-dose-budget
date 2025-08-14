@@ -10,7 +10,10 @@
     "dev:server": "npm --workspace server run start",
     "dev:client": "npm --workspace client run dev",
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
-    "build": "npm --workspace client run build"
+  "dev:server:docker": "docker compose up --build",
+  "dev:server:docker:detached": "docker compose up --build -d",
+  "dev:server:docker:down": "docker compose down",
+  "build": "npm --workspace client run build"
   },
   "devDependencies": {
     "concurrently": "^9.2.0"

@@ -7,6 +7,6 @@ services:
       - "4000:4000"
     environment:
       - NODE_ENV=production
-      - DATA_DIR=/data-files
+      - DB_PATH=/data/app.db
     volumes:
-      - ./data-files:/data-files:ro
+      - ./data:/data

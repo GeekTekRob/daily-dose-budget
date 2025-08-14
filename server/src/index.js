@@ -2,83 +2,44 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
-import { parse } from 'csv-parse/sync';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
+import db from './db.js';
 dayjs.extend(customParseFormat);
 
 const app = express();
 app.use(cors());
 
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : path.resolve(process.cwd(), '../data-files');
-
-function loadCsv(file, options = {}) {
-  const filePath = path.join(DATA_DIR, file);
-  const content = fs.readFileSync(filePath, 'utf8');
-  const records = parse(content, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    ...options,
-  });
-  return records;
-}
-
-function normalizeNumber(value) {
-  if (typeof value === 'number') return value;
-  if (!value) return 0;
-  return Number(String(value).replace(/[$,]/g, '')) || 0;
-}
-
-function toISO(dateStr) {
-  if (!dateStr) return dayjs.invalid().toISOString();
-  const formats = ['M/D/YYYY', 'MM/DD/YYYY', 'M/D/YY', 'YYYY-MM-DD', 'M-D-YYYY'];
-  let d = dayjs(dateStr, formats, true);
-  if (!d.isValid()) d = dayjs(dateStr);
-  return d.toISOString();
-}
-
-function loadData() {
-  const accounts = loadCsv('account.csv');
-  const transactions = loadCsv('transaction.csv').map(t => {
-    let amt = normalizeNumber(t.Amount);
-    const type = String(t.TransactionType || '').toLowerCase();
-    // Normalize sign by type for robustness with CSVs that omit +/-
-    if (type === 'debit' && amt > 0) amt = -amt;
-    if (type === 'credit' && amt < 0) amt = Math.abs(amt);
-    return {
-      ...t,
-      Amount: amt,
-      TransactionDate: toISO(t.TransactionDate),
-    };
-  });
-  const bills = loadCsv('bill.csv').map(b => ({
-    ...b,
-    Amount: normalizeNumber(b.Amount),
-    IsRecurring: String(b.IsRecurring).toLowerCase() === 'true',
-    StartDate: toISO(b.StartDate),
-  }));
-  return { accounts, transactions, bills };
-}
-
-function computeBalances(transactions, bills) {
-  const currentBalance = transactions.reduce((sum, t) => sum + t.Amount, 0);
-  const upcomingTotal = bills.reduce((sum, b) => sum + b.Amount, 0);
-  return {
-    currentBalance,
-    realBalance: currentBalance - upcomingTotal,
-    upcomingTotal,
-  };
-}
+// CSV ingestion removed; now using SQLite via ./db.js
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 app.get('/api/accounts', (req, res) => {
   try {
-    const { accounts } = loadData();
-    res.json(accounts);
+    const rows = db.prepare('SELECT id, name as AccountName, display_name as DisplayName, initial_balance FROM accounts WHERE archived=0 ORDER BY display_name').all();
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/accounts', express.json(), (req, res) => {
+  try {
+    const { name, displayName, initialBalance = 0 } = req.body || {};
+    if (!name || !displayName) return res.status(400).json({ error: 'name and displayName required' });
+    const stmt = db.prepare('INSERT INTO accounts(name, display_name, initial_balance) VALUES (?, ?, ?)');
+    const info = stmt.run(name, displayName, Number(initialBalance || 0));
+    res.status(201).json({ id: info.lastInsertRowid, name, displayName, initialBalance: Number(initialBalance || 0) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/accounts/:id', (req, res) => {
+  try {
+    const info = db.prepare('UPDATE accounts SET archived=1 WHERE id=?').run(req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -86,10 +47,43 @@ app.get('/api/accounts', (req, res) => {
 
 app.get('/api/transactions', (req, res) => {
   try {
-    const { transactions } = loadData();
-    // newest first
-    transactions.sort((a, b) => (a.TransactionDate < b.TransactionDate ? 1 : -1));
-    res.json(transactions);
+    const rows = db.prepare(`
+      SELECT t.id, t.date as TransactionDate, t.amount as Amount, t.type as TransactionType, t.status as Status, t.description as Description,
+             a.name as AccountName, a.display_name as DisplayName
+      FROM transactions t
+      JOIN accounts a ON a.id = t.account_id
+      ORDER BY t.date DESC, t.id DESC
+      LIMIT 500
+    `).all();
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/transactions', express.json(), (req, res) => {
+  try {
+  const { accountId, date, amount, type, status = 'pending', description } = req.body || {};
+    if (!accountId || !date || !amount || !type) return res.status(400).json({ error: 'accountId, date, amount, type required' });
+  let amt = Number(amount);
+  const t = String(type).toLowerCase();
+  if (t === 'debit' && amt > 0) amt = -amt;
+  if (t === 'credit' && amt < 0) amt = Math.abs(amt);
+  const stmt = db.prepare('INSERT INTO transactions(account_id, date, amount, type, status, description) VALUES (?, ?, ?, ?, ?, ?)');
+  const info = stmt.run(accountId, date, amt, String(type), String(status), description || null);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/transactions/:id', express.json(), (req, res) => {
+  try {
+    const { status } = req.body || {};
+    if (!status) return res.status(400).json({ error: 'status required' });
+    const info = db.prepare('UPDATE transactions SET status=? WHERE id=?').run(String(status), req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -97,11 +91,32 @@ app.get('/api/transactions', (req, res) => {
 
 app.get('/api/bills', (req, res) => {
   try {
-  const { bills } = loadData();
-  const today = dayjs().startOf('day');
-  const upcoming = bills.filter(b => dayjs(b.StartDate).isSame(today) || dayjs(b.StartDate).isAfter(today));
-  upcoming.sort((a, b) => (a.StartDate > b.StartDate ? 1 : -1));
-  res.json(upcoming);
+    const rows = db.prepare('SELECT id, name as BillName, amount as Amount, start_date as StartDate, is_recurring as IsRecurring, recurring_type as RecurringType FROM bills ORDER BY start_date').all();
+    const today = dayjs().startOf('day');
+    const upcoming = rows.filter(b => dayjs(b.StartDate).isSame(today) || dayjs(b.StartDate).isAfter(today));
+    res.json(upcoming);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/bills', express.json(), (req, res) => {
+  try {
+    const { name, amount, startDate, isRecurring = false, recurringType = null } = req.body || {};
+    if (!name || !amount || !startDate) return res.status(400).json({ error: 'name, amount, startDate required' });
+    const stmt = db.prepare('INSERT INTO bills(name, amount, start_date, is_recurring, recurring_type) VALUES (?, ?, ?, ?, ?)');
+    const info = stmt.run(String(name), Number(amount), String(startDate), isRecurring ? 1 : 0, recurringType || null);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/bills/:id', (req, res) => {
+  try {
+    const info = db.prepare('DELETE FROM bills WHERE id=?').run(req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -109,11 +124,16 @@ app.get('/api/bills', (req, res) => {
 
 app.get('/api/summary', (req, res) => {
   try {
-  const { transactions, bills } = loadData();
-  const today = dayjs().startOf('day');
-  const upcoming = bills.filter(b => dayjs(b.StartDate).isSame(today) || dayjs(b.StartDate).isAfter(today));
-  const balances = computeBalances(transactions, upcoming);
-    res.json(balances);
+    const tx = db.prepare('SELECT amount FROM transactions').all();
+    const accounts = db.prepare('SELECT initial_balance FROM accounts WHERE archived=0').all();
+    const currentBalance = tx.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+      + accounts.reduce((s, r) => s + (Number(r.initial_balance) || 0), 0);
+    const bills = db.prepare('SELECT amount, start_date FROM bills').all();
+    const today = dayjs().startOf('day');
+    const upcomingTotal = bills
+      .filter(b => dayjs(b.start_date || b.StartDate).isSame(today) || dayjs(b.start_date || b.StartDate).isAfter(today))
+      .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    res.json({ currentBalance, upcomingTotal, realBalance: currentBalance - upcomingTotal });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -121,19 +141,14 @@ app.get('/api/summary', (req, res) => {
 
 app.get('/api/accounts-summary', (req, res) => {
   try {
-    const { accounts, transactions } = loadData();
-    const byAccount = new Map();
-    for (const t of transactions) {
-      const key = t.AccountName || 'Unknown';
-      byAccount.set(key, (byAccount.get(key) || 0) + t.Amount);
-    }
-    const display = new Map(accounts.map(a => [a.AccountName, a.DisplayName || a.AccountName]));
-    const list = Array.from(byAccount.entries()).map(([AccountName, balance]) => ({
-      AccountName,
-      DisplayName: display.get(AccountName) || AccountName,
-      Balance: balance,
-    })).sort((a, b) => a.DisplayName.localeCompare(b.DisplayName));
-    res.json(list);
+    const rows = db.prepare(`
+      SELECT a.id as AccountId, a.name as AccountName, a.display_name as DisplayName,
+             (a.initial_balance + IFNULL((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id), 0)) as Balance
+      FROM accounts a
+      WHERE a.archived = 0
+      ORDER BY a.display_name
+    `).all();
+    res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
