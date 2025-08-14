@@ -13,6 +13,7 @@
   "dev:server:docker": "docker compose up --build",
   "dev:server:docker:detached": "docker compose up --build -d",
   "dev:server:docker:down": "docker compose down",
+  "dev:full": "npm run dev:server:docker:detached && npm --workspace client run dev",
   "build": "npm --workspace client run build"
   },
   "devDependencies": {

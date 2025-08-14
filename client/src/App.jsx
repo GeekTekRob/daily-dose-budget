@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
@@ -100,93 +101,28 @@ function App() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
-      <header className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-800">Daily Dose Budget</h1>
-        <div className="text-slate-500 text-sm">Simple. Clear. Daily.</div>
-      </header>
-
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <Card title="Current Balance" value={loadingSummary ? '—' : currency(summary?.currentBalance || 0)} accent="blue" />
-        <Card title="Bills (Upcoming)" value={loadingSummary ? '—' : currency(summary?.upcomingTotal || 0)} accent="red" />
-        <Card title="Real Balance" value={loadingSummary ? '—' : currency(summary?.realBalance || 0)} accent="green" />
-      </section>
-
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="space-y-3">
-          <Card title="Recent Transactions" value={loadingTx ? 'Loading…' : `${transactions?.length ?? 0} items`}>
-            <List
-              items={transactions?.slice(0, 20)}
-              empty="No transactions"
-              renderItem={t => (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-medium text-slate-800 truncate">{acctDisplay(t.AccountName)}</div>
-                    <div className="text-xs text-slate-500">{new Date(t.TransactionDate).toLocaleDateString()} • {t.TransactionType} • {t.Status || 'confirmed'}</div>
-                  </div>
-                  <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
-                  {t.Status === 'pending' && (
-                    <button
-                      onClick={async () => { await patchJson(`/api/transactions/${t.id}`, { status: 'confirmed' }); reloadTx(); reloadSummary(); reloadAcct(); }}
-                      className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                    >Confirm</button>
-                  )}
-                </div>
-              )}
-            />
-          </Card>
-
-          <Card title="Add Transaction" value="">
-            <TransactionForm accounts={accounts} onSubmit={async (payload) => { await postJson('/api/transactions', payload); reloadTx(); reloadSummary(); reloadAcct(); }} />
-          </Card>
-        </div>
-
-  <div className="space-y-3">
-          <Card title="Upcoming Bills" value={loadingBills ? 'Loading…' : `${bills?.length ?? 0} items`}>
-            <List
-              items={bills}
-              empty="No upcoming bills"
-              renderItem={b => (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-medium text-slate-800 truncate">{b.BillName}</div>
-                    <div className="text-xs text-slate-500">{new Date(b.StartDate).toLocaleDateString()} {b.IsRecurring ? `• ${b.RecurringType}` : ''}</div>
-                  </div>
-                  <div className="font-semibold text-rose-700">{currency(b.Amount)}</div>
-                  <button onClick={async () => { await del(`/api/bills/${b.id}`); reloadBills(); reloadSummary(); }} className="text-xs px-2 py-1 rounded bg-slate-200 hover:bg-slate-300">Delete</button>
-                </div>
-              )}
-            />
-          </Card>
-
-          <Card title="Add Bill" value="">
-            <BillForm onSubmit={async (payload) => { await postJson('/api/bills', payload); reloadBills(); reloadSummary(); }} />
-          </Card>
-        </div>
-
-        <div className="space-y-3">
-          <Card title="Accounts" value={loadingAcct ? 'Loading…' : `${accountSummary?.length ?? 0} accounts`}>
-            <List
-              items={accountSummary}
-              empty="No accounts"
-              renderItem={a => (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium text-slate-800">{a.DisplayName}</div>
-                  <div className={`font-semibold ${a.Balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(a.Balance)}</div>
-                  <button onClick={async () => { await del(`/api/accounts/${a.AccountId}`); reloadAccounts(); reloadAcct(); reloadSummary(); }} className="text-xs px-2 py-1 rounded bg-slate-200 hover:bg-slate-300">Archive</button>
-                </div>
-              )}
-            />
-          </Card>
-
-          <Card title="Add Account" value="">
-            <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); reloadAccounts(); reloadAcct(); reloadSummary(); }} />
-          </Card>
-        </div>
-      </section>
-
-      <footer className="mt-8 text-center text-xs text-slate-400">Self-hosted • Mobile first • Privacy friendly</footer>
-    </div>
+    <BrowserRouter>
+      <div className="min-h-screen grid grid-cols-1 md:grid-cols-[220px_1fr]">
+        <aside className="border-b md:border-b-0 md:border-r border-slate-200 p-4">
+          <div className="font-bold text-slate-800 mb-4">Daily Dose Budget</div>
+          <nav className="space-y-1 text-sm">
+            <NavLink to="/" end className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>Dashboard</NavLink>
+            <NavLink to="/accounts" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>Accounts</NavLink>
+            <NavLink to="/bills" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>Bills</NavLink>
+            <NavLink to="/transactions" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>Transactions</NavLink>
+          </nav>
+        </aside>
+        <main className="p-4 max-w-6xl mx-auto w-full">
+          <Routes>
+            <Route path="/" element={<DashboardPage {...{summary, loadingSummary, transactions, loadingTx, bills, loadingBills, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadAcct, reloadAccounts, acctDisplay}} />} />
+            <Route path="/accounts" element={<AccountsPage {...{accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts}} />} />
+            <Route path="/bills" element={<BillsPage {...{bills, loadingBills, postJson, del, reloadBills, reloadSummary}} />} />
+            <Route path="/transactions" element={<TransactionsPage {...{transactions, loadingTx, accounts, postJson, patchJson, reloadTx, reloadSummary, reloadAcct}} />} />
+          </Routes>
+          <footer className="mt-8 text-center text-xs text-slate-400">Self-hosted • Mobile first • Privacy friendly</footer>
+        </main>
+      </div>
+    </BrowserRouter>
   )
 }
 
@@ -305,5 +241,153 @@ function TransactionForm({ onSubmit, accounts }) {
       </Field>
       <button className="mt-2 px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Add Transaction</button>
     </form>
+  )
+}
+
+function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills, loadingBills, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadAcct, reloadAccounts, acctDisplay }) {
+  return (
+    <div>
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <Card title="Current Balance" value={loadingSummary ? '—' : currency(summary?.currentBalance || 0)} accent="blue" />
+        <Card title="Bills (Upcoming)" value={loadingSummary ? '—' : currency(summary?.upcomingTotal || 0)} accent="red" />
+        <Card title="Real Balance" value={loadingSummary ? '—' : currency(summary?.realBalance || 0)} accent="green" />
+      </section>
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-3">
+          <Card title="Recent Transactions" value={loadingTx ? 'Loading…' : `${transactions?.length ?? 0} items`}>
+            <List
+              items={transactions?.slice(0, 20)}
+              empty="No transactions"
+              renderItem={t => (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-800 truncate">{acctDisplay(t.AccountName)}</div>
+                    <div className="text-xs text-slate-500">{new Date(t.TransactionDate).toLocaleDateString()} • {t.TransactionType} • {t.Status || 'confirmed'}</div>
+                  </div>
+                  <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
+                  {t.Status === 'pending' && (
+                    <button
+                      onClick={async () => { await patchJson(`/api/transactions/${t.id}`, { status: 'confirmed' }); reloadTx(); reloadSummary(); reloadAcct(); }}
+                      className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                    >Confirm</button>
+                  )}
+                </div>
+              )}
+            />
+          </Card>
+        </div>
+        <div className="space-y-3">
+          <Card title="Upcoming Bills" value={loadingBills ? 'Loading…' : `${bills?.length ?? 0} items`}>
+            <List
+              items={bills}
+              empty="No upcoming bills"
+              renderItem={b => (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-800 truncate">{b.BillName}</div>
+                    <div className="text-xs text-slate-500">{new Date(b.StartDate).toLocaleDateString()} {b.IsRecurring ? `• ${b.RecurringType}` : ''}</div>
+                  </div>
+                  <div className="font-semibold text-rose-700">{currency(b.Amount)}</div>
+                </div>
+              )}
+            />
+          </Card>
+        </div>
+        <div className="space-y-3">
+          <Card title="Accounts" value={loadingAcct ? 'Loading…' : `${accountSummary?.length ?? 0} accounts`}>
+            <List
+              items={accountSummary}
+              empty="No accounts"
+              renderItem={a => (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-slate-800">{a.DisplayName}</div>
+                  <div className={`font-semibold ${a.Balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(a.Balance)}</div>
+                </div>
+              )}
+            />
+          </Card>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts }) {
+  return (
+    <div className="space-y-6">
+      <Card title="Accounts" value={loadingAcct ? 'Loading…' : `${accountSummary?.length ?? 0} accounts`}>
+        <List
+          items={accountSummary}
+          empty="No accounts"
+          renderItem={a => (
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-medium text-slate-800">{a.DisplayName}</div>
+              <div className={`font-semibold ${a.Balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(a.Balance)}</div>
+              <button onClick={async () => { await del(`/api/accounts/${a.AccountId}`); reloadAccounts(); reloadAcct(); reloadSummary(); }} className="text-xs px-2 py-1 rounded bg-slate-200 hover:bg-slate-300">Archive</button>
+            </div>
+          )}
+        />
+      </Card>
+      <Card title="Add Account" value="">
+        <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); reloadAccounts(); reloadAcct(); reloadSummary(); }} />
+      </Card>
+    </div>
+  )
+}
+
+function BillsPage({ bills, loadingBills, postJson, del, reloadBills, reloadSummary }) {
+  return (
+    <div className="space-y-6">
+      <Card title="Bills" value={loadingBills ? 'Loading…' : `${bills?.length ?? 0} upcoming`}>
+        <List
+          items={bills}
+          empty="No bills"
+          renderItem={b => (
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium text-slate-800 truncate">{b.BillName}</div>
+                <div className="text-xs text-slate-500">{new Date(b.StartDate).toLocaleDateString()} {b.IsRecurring ? `• ${b.RecurringType}` : ''}</div>
+              </div>
+              <div className="font-semibold text-rose-700">{currency(b.Amount)}</div>
+              <button onClick={async () => { await del(`/api/bills/${b.id}`); reloadBills(); reloadSummary(); }} className="text-xs px-2 py-1 rounded bg-slate-200 hover:bg-slate-300">Delete</button>
+            </div>
+          )}
+        />
+      </Card>
+      <Card title="Add Bill" value="">
+        <BillForm onSubmit={async (payload) => { await postJson('/api/bills', payload); reloadBills(); reloadSummary(); }} />
+      </Card>
+    </div>
+  )
+}
+
+function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJson, reloadTx, reloadSummary, reloadAcct }) {
+  return (
+    <div className="space-y-6">
+      <Card title="Transactions" value={loadingTx ? 'Loading…' : `${transactions?.length ?? 0}`}>
+        <List
+          items={transactions}
+          empty="No transactions"
+          renderItem={t => (
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium text-slate-800 truncate">{t.DisplayName || t.AccountName}</div>
+                <div className="text-xs text-slate-500">{new Date(t.TransactionDate).toLocaleDateString()} • {t.TransactionType} • {t.Status || 'confirmed'}</div>
+              </div>
+              <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
+              {t.Status === 'pending' && (
+                <button
+                  onClick={async () => { await patchJson(`/api/transactions/${t.id}`, { status: 'confirmed' }); reloadTx(); reloadSummary(); reloadAcct(); }}
+                  className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                >Confirm</button>
+              )}
+            </div>
+          )}
+        />
+      </Card>
+      <Card title="Add Transaction" value="">
+        <TransactionForm accounts={accounts} onSubmit={async (payload) => { await postJson('/api/transactions', payload); reloadTx(); reloadSummary(); reloadAcct(); }} />
+      </Card>
+    </div>
   )
 }

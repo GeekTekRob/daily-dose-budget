@@ -20,3 +20,12 @@ copilot-instructions.md
 .dockerignore
 docker-compose.override.yml
 docker-compose.local.yml
+
+# App data (SQLite)
+data/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Vite cache (optional)
+.vite/
