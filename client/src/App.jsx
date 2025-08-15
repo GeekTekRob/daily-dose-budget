@@ -32,16 +32,19 @@ function useApi(path) {
 }
 
 function Card({ title, value, accent = 'slate', children }) {
+  // Flat color palette
   const accentClass = {
-    slate: 'from-mardiGras to-ink',
-    green: 'from-emerald to-ink',
-    red: 'from-redPantone to-ink',
-    blue: 'from-mardiGras to-ink',
-  }[accent]
+    slate: 'bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100',
+    green: 'bg-[#2fbf71] text-white', // emerald
+    red: 'bg-[#e71d36] text-white',   // red-pantone
+    blue: 'bg-[#7f29d2] text-white',  // purple (mardi-gras)
+    purple: 'bg-[#7f29d2] text-white',
+    gray: 'bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100',
+  }[accent] || 'bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100';
 
   return (
     <div className="rounded-2xl overflow-hidden shadow-lg app-card app-border border">
-      <div className={`px-4 py-2 text-white bg-gradient-to-br ${accentClass}`}>
+      <div className={`px-4 py-2 ${accentClass}`}>
         <div className="text-base md:text-lg font-semibold opacity-90">{title}</div>
         <div className="text-2xl md:text-3xl font-extrabold leading-tight">{value}</div>
       </div>
@@ -326,14 +329,13 @@ function TransactionForm({ onSubmit, accounts }) {
   const [date, setDate] = useState('')
   const [amount, setAmount] = useState('')
   const [type, setType] = useState('Debit')
-  const [status, setStatus] = useState('pending')
   const [description, setDescription] = useState('')
 
   return (
     <form className="p-4 space-y-2" onSubmit={async (e) => {
       e.preventDefault();
-      await onSubmit({ accountId: Number(accountId), date, amount: Number(amount), type, status, description });
-      setAccountId(''); setDate(''); setAmount(''); setType('Debit'); setStatus('pending'); setDescription('');
+      await onSubmit({ accountId: Number(accountId), date, amount: Number(amount), type, status: 'confirmed', description });
+      setAccountId(''); setDate(''); setAmount(''); setType('Debit'); setDescription('');
     }}>
       <Field label="Account">
   <select value={accountId} onChange={e => setAccountId(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required>
@@ -350,14 +352,11 @@ function TransactionForm({ onSubmit, accounts }) {
   <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
       </Field>
       <div className="flex items-center gap-3">
-  <select value={type} onChange={e => setType(e.target.value)} className="border app-border rounded px-3 py-2 app-card">
+        <select value={type} onChange={e => setType(e.target.value)} className="border app-border rounded px-3 py-2 app-card">
           <option>Debit</option>
           <option>Credit</option>
         </select>
-  <select value={status} onChange={e => setStatus(e.target.value)} className="border app-border rounded px-3 py-2 app-card">
-          <option>pending</option>
-          <option>confirmed</option>
-        </select>
+        <span className="text-xs app-muted">Status: confirmed</span>
       </div>
       <Field label="Description">
   <input value={description} onChange={e => setDescription(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" />
@@ -427,7 +426,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
       {/* Row 1:       npm --workspace client run dev, Daily Spend, Upcoming Bills total */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Card title="Real Balance" value={loadingSummary ? '—' : currency(summary?.realBalance || 0)} accent="green" />
-        <Card title="Daily Spend" value={loadingSummary ? '—' : currency(dailySpend)} accent="blue" />
+        <Card title="Daily Spend" value={loadingSummary ? '—' : currency(dailySpend)} accent="purple" />
         <Card title="Bills (Upcoming)" value={loadingSummary ? '—' : currency(summary?.upcomingTotal || 0)} accent="red" />
       </section>
 
@@ -764,14 +763,19 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
 
 function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks, refreshMoney }) {
   const [editId, setEditId] = useState(null)
-  const [form, setForm] = useState({ date: '', amount: '', type: 'Debit', status: 'pending', description: '', accountId: '' })
+  const [editSynthetic, setEditSynthetic] = useState(false)
+  const [form, setForm] = useState({ date: '', amount: '', type: 'Debit', status: 'confirmed', description: '', accountId: '' })
   const beginEdit = (t) => {
     setEditId(t.id)
+    const synthetic = Boolean(t.Synthetic)
+    setEditSynthetic(synthetic)
+    const status = (t.Status || 'confirmed')
+    const normalizedStatus = synthetic ? status : 'confirmed'
     setForm({
       date: t.TransactionDate?.slice(0,10) || '',
       amount: String(Math.abs(Number(t.Amount || 0))),
       type: (Number(t.Amount) < 0 ? 'Debit' : 'Credit'),
-      status: t.Status || 'confirmed',
+      status: normalizedStatus,
       description: t.Description || '',
       accountId: (t.account_id || t.accountId || '')
     })
@@ -783,37 +787,37 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
           items={transactions}
           empty="No transactions"
           renderItem={t => (
-            <div className="flex items-center justify-between gap-3">
+            <div className="grid grid-cols-3 items-center gap-3">
               <div className="min-w-0">
-                <div className="font-medium truncate app-text">{t.DisplayName || t.AccountName}</div>
-                <div className="text-xs app-muted flex items-center gap-2 flex-wrap">
-                  <span>{new Date(t.TransactionDate).toLocaleDateString()} • {t.Status || 'confirmed'}</span>
-                  <span className="hidden sm:inline">•</span>
-                  <span className="flex gap-1">
-                    {getTransactionBadges(t).map((b, i) => (
-                      <Badge key={`${b.label}-${i}`} kind={b.kind}>{b.label}</Badge>
-                    ))}
-                  </span>
+                <div className="font-medium truncate app-text">{t.Description}</div>
+                <div className="text-xs app-muted">{new Date(t.TransactionDate).toLocaleDateString()}</div>
+                <div className="mt-1 flex gap-1 flex-wrap">
+                  {getTransactionBadges(t).map((b, i) => (
+                    <Badge key={`${b.label}-${i}`} kind={b.kind}>{b.label}</Badge>
+                  ))}
                 </div>
               </div>
-              <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
-        {t.Synthetic ? (
-                <button
-          onClick={async () => { await postJson(`/api/recurrings/${t.RecurringId}/skip`, {}); refreshMoney({ summary: true, accountBalances: true, transactions: true, bills: true, paychecks: true }); }}
-                  className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
-                >Clear</button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {t.Status === 'pending' && (
-                    <button
-                      onClick={async () => { await patchJson(`/api/transactions/${t.id}`, { status: 'confirmed' }); refreshMoney({ summary: true, accountBalances: true, transactions: true }); }}
-                      className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                    >Confirm</button>
-                  )}
-                  <button onClick={() => beginEdit(t)} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Edit</button>
-                  <button onClick={async () => { await del(`/api/transactions/${t.id}`); refreshMoney({ summary: true, accountBalances: true, transactions: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
-                </div>
-              )}
+              <div className="min-w-0 text-sm app-muted truncate">{t.DisplayName || t.AccountName}</div>
+              <div className="flex items-center justify-end gap-2">
+                <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
+                {t.Synthetic ? (
+                  <button
+                    onClick={async () => { await postJson(`/api/recurrings/${t.RecurringId}/skip`, {}); refreshMoney({ summary: true, accountBalances: true, transactions: true, bills: true, paychecks: true }); }}
+                    className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
+                  >Clear</button>
+                ) : (
+                  <>
+                    {t.Status === 'pending' && (
+                      <button
+                        onClick={async () => { await patchJson(`/api/transactions/${t.id}`, { status: 'confirmed' }); refreshMoney({ summary: true, accountBalances: true, transactions: true }); }}
+                        className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                      >Confirm</button>
+                    )}
+                    <button onClick={() => beginEdit(t)} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Edit</button>
+                    <button onClick={async () => { await del(`/api/transactions/${t.id}`); refreshMoney({ summary: true, accountBalances: true, transactions: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
+                  </>
+                )}
+              </div>
             </div>
           )}
         />
@@ -840,10 +844,16 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
               <option>Debit</option>
               <option>Credit</option>
             </select>
-            <select value={form.status} onChange={e => setForm(v => ({...v, status: e.target.value}))} className="border app-border rounded px-3 py-2 app-card">
-              <option>pending</option>
-              <option>confirmed</option>
-            </select>
+            {editSynthetic ? (
+              <select value={form.status} onChange={e => setForm(v => ({...v, status: e.target.value}))} className="border app-border rounded px-3 py-2 app-card">
+                <option>pending</option>
+                <option>confirmed</option>
+              </select>
+            ) : (
+              <select value={form.status} disabled className="border app-border rounded px-3 py-2 app-card bg-slate-100 dark:bg-slate-800">
+                <option>confirmed</option>
+              </select>
+            )}
             <input value={form.description} onChange={e => setForm(v => ({...v, description: e.target.value}))} placeholder="Description" className="border app-border rounded px-3 py-2 app-card sm:col-span-2" />
             <select value={form.accountId} onChange={e => setForm(v => ({...v, accountId: e.target.value}))} className="border app-border rounded px-3 py-2 app-card sm:col-span-2" required>
               <option value="" disabled>Select account</option>

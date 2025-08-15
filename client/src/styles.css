@@ -5,13 +5,18 @@
 :root { color-scheme: light dark; }
 
 /* Color variables from attachment */
+
 :root {
 	--seasalt: #f4f7f5ff;
 	--black: #08090aff;
-	--emerald: #2fbf71ff;
-	--red-pantone: #e71d36ff;
-	--mardi-gras: #7f2982ff;
+	--emerald: #2fbf71;
+	--red-pantone: #e71d36;
+	--mardi-gras: #7f29d2;
+	--card-gray-light: #f3f4f6;
+	--card-gray-dark: #18181b;
 }
+.bg-card-gray-light { background-color: var(--card-gray-light); }
+.bg-card-gray-dark { background-color: var(--card-gray-dark); }
 
 /* Theme surface tokens */
 :root {
