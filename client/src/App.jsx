@@ -114,6 +114,23 @@ function App() {
     localStorage.setItem('theme', theme)
   }, [theme])
 
+  // Centralized monetary refresh helper
+  const refreshMoney = ({
+    summary = true,
+    accountBalances = true,
+    accountList = false,
+    transactions = false,
+    bills = false,
+    paychecks = false,
+  } = {}) => {
+    if (summary) reloadSummary()
+    if (accountBalances) reloadAcct()
+    if (accountList) reloadAccounts()
+    if (transactions) reloadTx()
+    if (bills) reloadBills()
+    if (paychecks) reloadPaychecks()
+  }
+
   return (
     <BrowserRouter>
       <div className="min-h-screen app-bg app-text">
@@ -163,11 +180,11 @@ function App() {
           {/* Main content */}
           <main className="p-4 max-w-6xl mx-auto w-full">
             <Routes>
-              <Route path="/" element={<DashboardPage {...{summary, loadingSummary, transactions, loadingTx, bills, loadingBills, paychecks, loadingPaychecks, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadPaychecks, reloadAcct, reloadAccounts, acctDisplay}} />} />
-              <Route path="/accounts" element={<AccountsPage {...{accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts}} />} />
-              <Route path="/bills" element={<BillsPage {...{bills, loadingBills, postJson, del, reloadBills, reloadSummary}} />} />
-              <Route path="/recurring" element={<RecurringPage {...{accounts, postJson, patchJson, del, reloadSummary, reloadAcct, reloadTx, reloadBills, reloadPaychecks}} />} />
-              <Route path="/transactions" element={<TransactionsPage {...{transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks}} />} />
+              <Route path="/" element={<DashboardPage {...{summary, loadingSummary, transactions, loadingTx, bills, loadingBills, paychecks, loadingPaychecks, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadPaychecks, reloadAcct, reloadAccounts, acctDisplay, refreshMoney}} />} />
+              <Route path="/accounts" element={<AccountsPage {...{accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts, refreshMoney}} />} />
+              <Route path="/bills" element={<BillsPage {...{bills, loadingBills, postJson, del, reloadBills, reloadSummary, refreshMoney}} />} />
+              <Route path="/recurring" element={<RecurringPage {...{accounts, postJson, patchJson, del, reloadSummary, reloadAcct, reloadTx, reloadBills, reloadPaychecks, refreshMoney}} />} />
+              <Route path="/transactions" element={<TransactionsPage {...{transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks, refreshMoney}} />} />
             </Routes>
             <footer className="mt-8 text-center text-xs app-muted">Self-hosted • Mobile first • Privacy friendly</footer>
           </main>
@@ -350,7 +367,7 @@ function TransactionForm({ onSubmit, accounts }) {
   )
 }
 
-function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills, loadingBills, paychecks, loadingPaychecks, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadPaychecks, reloadAcct, reloadAccounts, acctDisplay }) {
+function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills, loadingBills, paychecks, loadingPaychecks, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadPaychecks, reloadAcct, reloadAccounts, acctDisplay, refreshMoney }) {
   // Compute Daily Spend to the sooner of next paycheck (from API if available) or end of month,
   // and include estimated inflows/outflows within that horizon.
   const { horizonDays, horizonEnd, startOfToday } = useMemo(() => {
@@ -486,7 +503,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
                     <div className="font-semibold text-rose-700">{currency(t.Amount)}</div>
                     {t.Synthetic ? (
                       <button
-                        onClick={async () => { await postJson(`/api/recurrings/${t.RecurringId}/skip`, {}); reloadTx(); reloadSummary(); reloadAcct(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks(); }}
+                        onClick={async () => { await postJson(`/api/recurrings/${t.RecurringId}/skip`, {}); refreshMoney({ summary: true, accountBalances: true, transactions: true, bills: true, paychecks: true }); }}
                         className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
                       >Clear</button>
                     ) : null}
@@ -504,7 +521,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
   )
 }
 
-function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts }) {
+function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts, refreshMoney }) {
   return (
     <div className="space-y-6">
       <Card title="Accounts" value="">
@@ -516,21 +533,21 @@ function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, re
               <div className="font-medium app-text">{a.DisplayName}</div>
               <div className={`font-semibold ${a.Balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(a.Balance)}</div>
               <div className="flex items-center gap-2">
-                <AccountInlineEdit a={a} onSaved={async () => { reloadAccounts(); reloadAcct(); reloadSummary(); }} />
-                <button onClick={async () => { await del(`/api/accounts/${a.AccountId}`); reloadAccounts(); reloadAcct(); reloadSummary(); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Archive</button>
+                <AccountInlineEdit a={a} onSaved={async () => { refreshMoney({ summary: true, accountBalances: true, accountList: true }); }} />
+                <button onClick={async () => { await del(`/api/accounts/${a.AccountId}`); refreshMoney({ summary: true, accountBalances: true, accountList: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Archive</button>
               </div>
             </div>
           )}
         />
       </Card>
       <Card title="Add Account" value="">
-        <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); reloadAccounts(); reloadAcct(); reloadSummary(); }} />
+  <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); refreshMoney({ summary: true, accountBalances: true, accountList: true }); }} />
       </Card>
     </div>
   )
 }
 
-function BillsPage({ bills, loadingBills, postJson, del, reloadBills, reloadSummary }) {
+function BillsPage({ bills, loadingBills, postJson, del, reloadBills, reloadSummary, refreshMoney }) {
   return (
     <div className="space-y-6">
   <Card title="Bills" value="">
@@ -544,13 +561,13 @@ function BillsPage({ bills, loadingBills, postJson, del, reloadBills, reloadSumm
                 <div className="text-xs app-muted">{new Date(b.StartDate).toLocaleDateString()} {b.IsRecurring ? `• ${b.RecurringType}` : ''}</div>
               </div>
               <div className="font-semibold text-rose-700">{currency(b.Amount)}</div>
-              <button onClick={async () => { await del(`/api/bills/${b.id}`); reloadBills(); reloadSummary(); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
+              <button onClick={async () => { await del(`/api/bills/${b.id}`); reloadBills(); refreshMoney({ summary: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
             </div>
           )}
         />
       </Card>
       <Card title="Add Bill" value="">
-        <BillForm onSubmit={async (payload) => { await postJson('/api/bills', payload); reloadBills(); reloadSummary(); }} />
+  <BillForm onSubmit={async (payload) => { await postJson('/api/bills', payload); reloadBills(); refreshMoney({ summary: true }); }} />
       </Card>
     </div>
   )
@@ -630,7 +647,7 @@ function RecurringConfirm({ r, accounts, onConfirm }) {
   )
 }
 
-function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, reloadAcct, reloadTx, reloadBills, reloadPaychecks }) {
+function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, reloadAcct, reloadTx, reloadBills, reloadPaychecks, refreshMoney }) {
   const { data: recurrings, loading: loadingRecurrings, reload: reloadRecurrings } = useApi('/api/recurrings')
   const bills = useMemo(() => (recurrings || []).filter(r => r.type === 'Bill'), [recurrings])
   const paychecks = useMemo(() => (recurrings || []).filter(r => r.type === 'Paycheck'), [recurrings])
@@ -664,9 +681,9 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-semibold text-emerald-700">{currency(r.estimated_amount || r.Amount)}</div>
-                    <RecurringConfirm r={r} accounts={accounts} onConfirm={async (payload) => { await postJson(`/api/recurrings/${r.id}/confirm`, payload); reloadSummary(); reloadAcct(); reloadRecurrings(); reloadTx && reloadTx(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks(); }} />
+                    <RecurringConfirm r={r} accounts={accounts} onConfirm={async (payload) => { await postJson(`/api/recurrings/${r.id}/confirm`, payload); reloadRecurrings(); refreshMoney({ summary: true, accountBalances: true, transactions: true, bills: true, paychecks: true }); }} />
                     <button onClick={() => beginEdit(r)} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Edit</button>
-                    <button onClick={async () => { await del(`/api/recurrings/${r.id}`); reloadRecurrings(); reloadSummary(); reloadAcct(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks(); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
+                    <button onClick={async () => { await del(`/api/recurrings/${r.id}`); reloadRecurrings(); refreshMoney({ summary: true, accountBalances: true, bills: true, paychecks: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
                   </div>
                 </div>
               )}
@@ -685,9 +702,9 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-semibold text-rose-700">{currency(r.estimated_amount || r.Amount)}</div>
-                    <RecurringConfirm r={r} accounts={accounts} onConfirm={async (payload) => { await postJson(`/api/recurrings/${r.id}/confirm`, payload); reloadSummary(); reloadAcct(); reloadRecurrings(); reloadTx && reloadTx(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks(); }} />
+                    <RecurringConfirm r={r} accounts={accounts} onConfirm={async (payload) => { await postJson(`/api/recurrings/${r.id}/confirm`, payload); reloadRecurrings(); refreshMoney({ summary: true, accountBalances: true, transactions: true, bills: true, paychecks: true }); }} />
                     <button onClick={() => beginEdit(r)} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Edit</button>
-                    <button onClick={async () => { await del(`/api/recurrings/${r.id}`); reloadRecurrings(); reloadSummary(); reloadAcct(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks(); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
+                    <button onClick={async () => { await del(`/api/recurrings/${r.id}`); reloadRecurrings(); refreshMoney({ summary: true, accountBalances: true, bills: true, paychecks: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
                   </div>
                 </div>
               )}
@@ -709,7 +726,8 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
             }
             await patchJson(`/api/recurrings/${edit}`, payload)
             setEdit(null)
-            reloadRecurrings(); reloadSummary(); reloadAcct(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks();
+            reloadRecurrings();
+            refreshMoney({ summary: true, accountBalances: true, bills: true, paychecks: true });
           }}>
             <input value={form.name} onChange={e => setForm(v => ({...v, name: e.target.value}))} placeholder="Name" className="border app-border rounded px-3 py-2 app-card" required />
             <select value={form.type} onChange={e => setForm(v => ({...v, type: e.target.value}))} className="border app-border rounded px-3 py-2 app-card">
@@ -738,13 +756,13 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
         </Card>
       )}
       <Card title="Add Recurring" value="">
-  <RecurringForm onSubmit={async (payload) => { await postJson('/api/recurrings', payload); reloadRecurrings(); reloadSummary(); reloadAcct(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks(); }} />
+  <RecurringForm onSubmit={async (payload) => { await postJson('/api/recurrings', payload); reloadRecurrings(); refreshMoney({ summary: true, accountBalances: true, bills: true, paychecks: true }); }} />
       </Card>
     </div>
   )
 }
 
-function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks }) {
+function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks, refreshMoney }) {
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState({ date: '', amount: '', type: 'Debit', status: 'pending', description: '', accountId: '' })
   const beginEdit = (t) => {
@@ -781,19 +799,19 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
               <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
         {t.Synthetic ? (
                 <button
-          onClick={async () => { await postJson(`/api/recurrings/${t.RecurringId}/skip`, {}); reloadTx(); reloadSummary(); reloadAcct(); reloadBills && reloadBills(); reloadPaychecks && reloadPaychecks(); }}
+          onClick={async () => { await postJson(`/api/recurrings/${t.RecurringId}/skip`, {}); refreshMoney({ summary: true, accountBalances: true, transactions: true, bills: true, paychecks: true }); }}
                   className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
                 >Clear</button>
               ) : (
                 <div className="flex items-center gap-2">
                   {t.Status === 'pending' && (
                     <button
-                      onClick={async () => { await patchJson(`/api/transactions/${t.id}`, { status: 'confirmed' }); reloadTx(); reloadSummary(); reloadAcct(); }}
+                      onClick={async () => { await patchJson(`/api/transactions/${t.id}`, { status: 'confirmed' }); refreshMoney({ summary: true, accountBalances: true, transactions: true }); }}
                       className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
                     >Confirm</button>
                   )}
                   <button onClick={() => beginEdit(t)} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Edit</button>
-                  <button onClick={async () => { await del(`/api/transactions/${t.id}`); reloadTx(); reloadSummary(); reloadAcct(); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
+                  <button onClick={async () => { await del(`/api/transactions/${t.id}`); refreshMoney({ summary: true, accountBalances: true, transactions: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
                 </div>
               )}
             </div>
