@@ -33,9 +33,15 @@ function useApi(path) {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch(`${API_URL}${path}`)
+    const token = localStorage.getItem('token')
+    fetch(`${API_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
       .then(r => {
-        if (!r.ok) throw new Error('Network error')
+        if (!r.ok) {
+          if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+          throw new Error('Network error')
+        }
         return r.json()
       })
       .then(json => !cancelled && setData(json))
@@ -96,6 +102,13 @@ function List({ items, renderItem, empty }) {
 }
 
 function App() {
+  const [showAuth, setShowAuth] = useState(false)
+  const [loggedIn, setLoggedIn] = useState(() => Boolean(localStorage.getItem('token')))
+  useEffect(() => {
+    const onAuthRequired = () => setShowAuth(true)
+    window.addEventListener('auth:required', onAuthRequired)
+    return () => window.removeEventListener('auth:required', onAuthRequired)
+  }, [])
   const { data: summary, loading: loadingSummary, reload: reloadSummary } = useApi('/api/summary')
   const { data: transactions, loading: loadingTx, reload: reloadTx } = useApi('/api/transactions')
   const { data: bills, loading: loadingBills, reload: reloadBills } = useApi('/api/bills')
@@ -110,28 +123,49 @@ function App() {
   }, [accounts])
 
   async function postJson(url, body) {
+    const token = localStorage.getItem('token')
     const r = await fetch(`${API_URL}${url}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
     })
-    if (!r.ok) throw new Error('Request failed')
+    if (!r.ok) {
+      if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+      throw new Error('Request failed')
+    }
     return r.json().catch(() => ({}))
   }
 
   async function patchJson(url, body) {
+    const token = localStorage.getItem('token')
     const r = await fetch(`${API_URL}${url}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
     })
-    if (!r.ok) throw new Error('Request failed')
+    if (!r.ok) {
+      if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+      throw new Error('Request failed')
+    }
     return r.json().catch(() => ({}))
   }
 
   async function del(url) {
-    const r = await fetch(`${API_URL}${url}`, { method: 'DELETE' })
-    if (!r.ok) throw new Error('Request failed')
+    const token = localStorage.getItem('token')
+    const r = await fetch(`${API_URL}${url}`, {
+      method: 'DELETE',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+    if (!r.ok) {
+      if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+      throw new Error('Request failed')
+    }
     return r.json().catch(() => ({}))
   }
 
@@ -173,7 +207,9 @@ function App() {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6"><path d="M4 6h16M4 12h16M4 18h16" strokeWidth="2" strokeLinecap="round"/></svg>
           </button>
           <div className="font-bold">Daily Dose Budget</div>
-          <span className="w-6" />
+          <button onClick={() => (loggedIn ? (localStorage.removeItem('token'), setLoggedIn(false), refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true, bills: true, paychecks: true })) : setShowAuth(true))} className="text-xs px-2 py-1 rounded border app-border">
+            {loggedIn ? 'Logout' : 'Login'}
+          </button>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] md:h-screen">
@@ -186,7 +222,12 @@ function App() {
               <NavLink to="/recurring" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Recurring</NavLink>
               <NavLink to="/transactions" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Transactions</NavLink>
             </nav>
-            <div className="mt-auto pt-6"><ThemeToggle theme={theme} setTheme={setTheme} /></div>
+            <div className="mt-auto pt-6 flex items-center justify-between gap-2">
+              <ThemeToggle theme={theme} setTheme={setTheme} />
+              <button onClick={() => (loggedIn ? (localStorage.removeItem('token'), setLoggedIn(false), refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true, bills: true, paychecks: true })) : setShowAuth(true))} className="inline-flex items-center text-xs px-2 py-2 rounded border app-border">
+                {loggedIn ? 'Logout' : 'Login'}
+              </button>
+            </div>
           </aside>
 
           {/* Sidebar mobile drawer */}
@@ -204,7 +245,12 @@ function App() {
                   <NavLink to="/recurring" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Recurring</NavLink>
                   <NavLink to="/transactions" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Transactions</NavLink>
                 </nav>
-                <div className="mt-6"><ThemeToggle theme={theme} setTheme={setTheme} /></div>
+                <div className="mt-6 flex items-center justify-between gap-2">
+                  <ThemeToggle theme={theme} setTheme={setTheme} />
+                  <button onClick={() => { setSidebarOpen(false); loggedIn ? (localStorage.removeItem('token'), setLoggedIn(false), refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true, bills: true, paychecks: true })) : setShowAuth(true) }} className="inline-flex items-center text-xs px-2 py-2 rounded border app-border">
+                    {loggedIn ? 'Logout' : 'Login'}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -220,6 +266,16 @@ function App() {
             <footer className="mt-auto pt-6 text-center text-xs app-muted">Self-hosted • Mobile first • Privacy friendly</footer>
           </main>
         </div>
+        <AuthModal
+          open={showAuth}
+          onClose={() => setShowAuth(false)}
+          onLoggedIn={() => {
+            setLoggedIn(true)
+            setShowAuth(false)
+            // Reload everything after login
+            refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true, bills: true, paychecks: true })
+          }}
+        />
       </div>
     </BrowserRouter>
   )
@@ -268,8 +324,13 @@ function AccountForm({ onSubmit }) {
   return (
     <form className="p-4 space-y-2" onSubmit={async (e) => {
       e.preventDefault();
-      await onSubmit({ name, displayName, initialBalance: Number(initialBalance || 0), type });
-  setName(''); setDisplayName(''); setInitialBalance('0.00'); setType('Checking');
+      try {
+        await onSubmit({ name, displayName, initialBalance: Number(initialBalance || 0), type });
+        setName(''); setDisplayName(''); setInitialBalance('0.00'); setType('Checking');
+      } catch (err) {
+        if (/Unauthorized/i.test(String(err))) window.dispatchEvent(new Event('auth:required'))
+        else alert('Failed to add account')
+      }
     }}>
       <Field label="Internal Name">
   <input value={name} onChange={e => setName(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
@@ -690,7 +751,7 @@ function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, re
       </Card>
       {/* Add Account Modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Account">
-        <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); setShowAdd(false); refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true }); }} />
+  <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); setShowAdd(false); refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true }); }} />
       </Modal>
       {/* Set Manual Balance Adjustment Modal */}
       <Modal open={showAdjust} onClose={() => setShowAdjust(false)} title="Set Manual Balance">
@@ -1209,5 +1270,75 @@ function ThemeToggle({ theme, setTheme }) {
       <span className="text-sm">{isDark ? 'Dark' : 'Light'}</span>
       <span role="img" aria-label={isDark ? 'moon' : 'sun'}>{isDark ? '🌙' : '☀️'}</span>
     </button>
+  )
+}
+
+function AuthModal({ open, onClose, onLoggedIn }) {
+  const [tab, setTab] = useState('login')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const endpoint = tab === 'login' ? '/api/login' : '/api/register'
+      const r = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+      if (!r.ok) {
+        const msg = await r.json().catch(() => ({}))
+        throw new Error(msg?.error || 'Request failed')
+      }
+      const data = await r.json().catch(() => ({}))
+      if (tab === 'login') {
+        if (!data?.token) throw new Error('No token returned')
+        localStorage.setItem('token', data.token)
+        onLoggedIn && onLoggedIn()
+      } else {
+        // auto login after register
+        const rl = await fetch(`${API_URL}/api/login`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password })
+        })
+        const dj = await rl.json().catch(() => ({}))
+        if (dj?.token) {
+          localStorage.setItem('token', dj.token)
+          onLoggedIn && onLoggedIn()
+        } else {
+          setTab('login')
+        }
+      }
+    } catch (e) {
+      setError(String(e.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={tab === 'login' ? 'Login' : 'Register'}>
+      <div className="mb-3 flex gap-2 text-sm">
+        <button className={`px-2 py-1 rounded border app-border ${tab==='login' ? 'bg-black/5 dark:bg-white/10' : ''}`} onClick={() => setTab('login')}>Login</button>
+        <button className={`px-2 py-1 rounded border app-border ${tab==='register' ? 'bg-black/5 dark:bg-white/10' : ''}`} onClick={() => setTab('register')}>Register</button>
+      </div>
+      <form className="space-y-3" onSubmit={submit}>
+        <Field label="Username">
+          <input value={username} onChange={e => setUsername(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
+        </Field>
+        <Field label="Password">
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
+        </Field>
+        {error ? <div className="text-sm text-rose-700">{error}</div> : null}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded border app-border">Cancel</button>
+          <button disabled={busy} className="px-3 py-2 rounded btn-primary">{tab === 'login' ? 'Login' : 'Register'}</button>
+        </div>
+      </form>
+    </Modal>
   )
 }

@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS recurrings (
 );
 CREATE INDEX IF NOT EXISTS idx_recurrings_type ON recurrings(type);
 CREATE INDEX IF NOT EXISTS idx_recurrings_start ON recurrings(start_date);
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL
+);
 `)
 
 // Progressive migrations for existing databases

@@ -53,6 +53,26 @@ npm run dev
 - Transactions: GET /api/transactions, POST /api/transactions, PATCH /api/transactions/:id
 - Summary: GET /api/summary (current, upcomingTotal, realBalance)
 
+## Authentication
+- The API provides `POST /api/register` and `POST /api/login`.
+- After login the server returns a token which the client stores in `localStorage` and sends as `Authorization: Bearer <token>` on subsequent requests.
+- By default tokens do not expire. This repo uses a simple HMAC-signed token in `server/src/auth.js`.
+
+Notes: the current implementation is intentionally minimal for a self-hosted demo. See `server/src/auth.js` for details and consider replacing with JWT + bcrypt/argon2 and user-scoped data for production.
+
+## Quick start — create an account and use the UI
+1. Start services (Docker):
+```powershell
+docker compose up --build -d
+```
+2. Visit http://localhost:4000 in your browser.
+3. Click "Login" in the header and choose Register to create a user. After registering you'll be automatically logged in and the client will send the token with API requests.
+
+## Dev checklist
+- Rebuild the Docker images after client/client code changes: `docker compose build && docker compose up -d`.
+- To run only the client in dev mode (fast feedback): `cd client && npm install && npm run dev` (you'll want the API running at :4000).
+- To run tests: `npm run test` at repo root (runs server and client tests via workspace scripts).
+
 ## Docker
 ```powershell
 cd .\daily-dose-budget

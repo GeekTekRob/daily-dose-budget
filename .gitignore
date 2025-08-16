@@ -1,31 +1,29 @@
+## Node workspace
 node_modules/
+
+## Client build output
 client/dist/
+
+## Server static/public build (served assets)
 server/public/
+
+## Environment files
 .env
 .env.*
-**/.env
+
+## Local app data (SQLite DB)
+data/
+
+## OS / Editor
 .DS_Store
 *.log
-npm-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-coverage/
-dist/
 
-# Exclude the build instructions doc
-copilot-instructions.md
-
-# Docker
-.docker/
-.dockerignore
-docker-compose.override.yml
-docker-compose.local.yml
-
-# App data (SQLite)
-data/
-data/*.db
-data/*.db-wal
-data/*.db-shm
-
-# Vite cache (optional)
+## Vite / cache
 .vite/
+
+## Docker artifacts created locally
+.docker/
+docker-compose.override.yml
+
+## Do not commit the following helper file
+copilot-instructions.md
