@@ -7,6 +7,23 @@ function currency(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD' })
 }
 
+// Parse a date string like 'YYYY-MM-DD' as a local date (avoid UTC off-by-one)
+function localDate(d) {
+  if (!d) return null;
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [y, m, day] = d.split('-').map(Number);
+    return new Date(y, m - 1, day);
+  }
+  const dt = new Date(d);
+  return isNaN(dt) ? null : dt;
+}
+
+// Format any numeric-ish value as a fixed 2-decimal string (fallback 0.00)
+function formatMoneyStr(v) {
+  const n = Number(v);
+  return isFinite(n) ? n.toFixed(2) : '0.00';
+}
+
 function useApi(path) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -31,7 +48,7 @@ function useApi(path) {
   return { data, loading, error, reload }
 }
 
-function Card({ title, value, accent = 'slate', children }) {
+function Card({ title, value, accent = 'slate', children, titleHelp, titleAction }) {
   // Flat color palette
   const accentClass = {
     slate: 'bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100',
@@ -45,7 +62,21 @@ function Card({ title, value, accent = 'slate', children }) {
   return (
     <div className="rounded-2xl overflow-hidden shadow-lg app-card app-border border">
       <div className={`px-4 py-2 ${accentClass}`}>
-        <div className="text-base md:text-lg font-semibold opacity-90">{title}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="text-base md:text-lg font-semibold opacity-90">{title}</div>
+            {titleHelp ? (
+              <span
+                className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-current/40 text-[10px] opacity-80"
+                title={titleHelp}
+                aria-label="Info"
+              >i</span>
+            ) : null}
+          </div>
+          {titleAction ? (
+            <div className="text-xs font-medium opacity-90">{titleAction}</div>
+          ) : null}
+        </div>
         <div className="text-2xl md:text-3xl font-extrabold leading-tight">{value}</div>
       </div>
       {children}
@@ -136,28 +167,26 @@ function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen app-bg app-text">
-        {/* Mobile top bar */}
+      <div>
         <header className="md:hidden flex items-center justify-between px-4 py-3 app-border border-b">
           <button aria-label="Open Menu" onClick={() => setSidebarOpen(true)} className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/10">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6"><path d="M4 6h16M4 12h16M4 18h16" strokeWidth="2" strokeLinecap="round"/></svg>
           </button>
           <div className="font-bold">Daily Dose Budget</div>
-          {/* Theme toggle moved to sidebar only */}
           <span className="w-6" />
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-[240px_1fr]">
+        <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] md:h-screen">
           {/* Sidebar desktop */}
-      <aside className="hidden md:block app-border border-r p-4">
+          <aside className="hidden md:block app-border border-r p-4 md:sticky md:top-0 md:self-start md:h-screen md:flex md:flex-col">
             <div className="font-bold mb-4">Daily Dose Budget</div>
             <nav className="space-y-1 text-sm">
               <NavLink to="/" end className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Dashboard</NavLink>
-        <NavLink to="/accounts" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Accounts</NavLink>
-        <NavLink to="/recurring" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Recurring</NavLink>
+              <NavLink to="/accounts" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Accounts</NavLink>
+              <NavLink to="/recurring" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Recurring</NavLink>
               <NavLink to="/transactions" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Transactions</NavLink>
             </nav>
-            <div className="mt-6"><ThemeToggle theme={theme} setTheme={setTheme} /></div>
+            <div className="mt-auto pt-6"><ThemeToggle theme={theme} setTheme={setTheme} /></div>
           </aside>
 
           {/* Sidebar mobile drawer */}
@@ -180,8 +209,7 @@ function App() {
             </div>
           )}
 
-          {/* Main content */}
-          <main className="p-4 max-w-6xl mx-auto w-full">
+          <main className="p-4 max-w-6xl mx-auto w-full md:h-screen md:overflow-y-auto flex flex-col">
             <Routes>
               <Route path="/" element={<DashboardPage {...{summary, loadingSummary, transactions, loadingTx, bills, loadingBills, paychecks, loadingPaychecks, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadPaychecks, reloadAcct, reloadAccounts, acctDisplay, refreshMoney}} />} />
               <Route path="/accounts" element={<AccountsPage {...{accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts, refreshMoney}} />} />
@@ -189,7 +217,7 @@ function App() {
               <Route path="/recurring" element={<RecurringPage {...{accounts, postJson, patchJson, del, reloadSummary, reloadAcct, reloadTx, reloadBills, reloadPaychecks, refreshMoney}} />} />
               <Route path="/transactions" element={<TransactionsPage {...{transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks, refreshMoney}} />} />
             </Routes>
-            <footer className="mt-8 text-center text-xs app-muted">Self-hosted • Mobile first • Privacy friendly</footer>
+            <footer className="mt-auto pt-6 text-center text-xs app-muted">Self-hosted • Mobile first • Privacy friendly</footer>
           </main>
         </div>
       </div>
@@ -205,6 +233,7 @@ export function Badge({ kind = 'neutral', children }) {
   const tone = {
     debit: 'text-rose-700 border-rose-600/40',
     credit: 'text-emerald-700 border-emerald-600/40',
+  pending: 'text-rose-700 border-rose-600/60',
     adjustment: 'app-muted app-border',
     neutral: 'app-muted app-border',
   }[String(kind).toLowerCase()] || 'app-muted app-border'
@@ -215,7 +244,7 @@ export function Badge({ kind = 'neutral', children }) {
 export function getTransactionBadges(t) {
   const badges = []
   const desc = (t?.Description || '').toLowerCase()
-  if (desc.includes('manual adjustment')) badges.push({ label: 'Adjustment', kind: 'adjustment' })
+  if (desc.includes('manual adjustment') || desc.includes('initial balance') || desc.includes('balance adjustment')) badges.push({ label: 'Adjustment', kind: 'adjustment' })
   const type = (t?.TransactionType || '').toLowerCase()
   if (type === 'debit') badges.push({ label: 'Debit', kind: 'debit' })
   if (type === 'credit') badges.push({ label: 'Credit', kind: 'credit' })
@@ -234,12 +263,13 @@ function Field({ label, children }) {
 function AccountForm({ onSubmit }) {
   const [name, setName] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [initialBalance, setInitialBalance] = useState('0')
+  const [initialBalance, setInitialBalance] = useState('0.00')
+  const [type, setType] = useState('Checking')
   return (
     <form className="p-4 space-y-2" onSubmit={async (e) => {
       e.preventDefault();
-      await onSubmit({ name, displayName, initialBalance: Number(initialBalance || 0) });
-      setName(''); setDisplayName(''); setInitialBalance('0');
+      await onSubmit({ name, displayName, initialBalance: Number(initialBalance || 0), type });
+  setName(''); setDisplayName(''); setInitialBalance('0.00'); setType('Checking');
     }}>
       <Field label="Internal Name">
   <input value={name} onChange={e => setName(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
@@ -247,21 +277,49 @@ function AccountForm({ onSubmit }) {
       <Field label="Display Name">
   <input value={displayName} onChange={e => setDisplayName(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
       </Field>
-      <Field label="Initial Balance">
-  <input type="number" step="0.01" value={initialBalance} onChange={e => setInitialBalance(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" />
+      <Field label="Type">
+        <select value={type} onChange={e => setType(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card">
+          <option>Checking</option>
+          <option>Savings</option>
+        </select>
+      </Field>
+    <Field label="Initial Balance">
+  <input type="number" step="0.01" value={initialBalance} onChange={e => setInitialBalance(e.target.value)} onBlur={e => setInitialBalance(formatMoneyStr(e.target.value))} className="w-full border app-border rounded px-3 py-2 app-card" />
       </Field>
   <button className="mt-2 px-3 py-2 rounded btn-primary">Add Account</button>
     </form>
   )
 }
 
+function Modal({ open, onClose, title, children, footer }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-[520px] app-card app-border border rounded-xl shadow-xl overflow-hidden">
+        <div className="px-4 py-3 border-b app-border flex items-center justify-between">
+          <div className="font-semibold">{title}</div>
+          <button onClick={onClose} className="px-2 py-1 text-sm rounded border app-border">Close</button>
+        </div>
+        <div className="p-4">
+          {children}
+        </div>
+        {footer ? (
+          <div className="px-4 py-3 border-t app-border bg-black/5 dark:bg-white/5">{footer}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function AccountInlineEdit({ a, onSaved }) {
   const [open, setOpen] = useState(false)
   const [displayName, setDisplayName] = useState(a.DisplayName || '')
+  const [type, setType] = useState(a.AccountType || 'Checking')
   const [balanceResetAmount, setBalanceResetAmount] = useState('')
   const [balanceResetDate, setBalanceResetDate] = useState('')
   const save = async () => {
-    const payload = { displayName }
+  const payload = { displayName, type }
     if (balanceResetAmount !== '' && balanceResetDate) {
       payload.balanceResetAmount = Number(balanceResetAmount)
       payload.balanceResetDate = balanceResetDate
@@ -274,22 +332,31 @@ function AccountInlineEdit({ a, onSaved }) {
     setOpen(false)
     onSaved && onSaved()
   }
-  return open ? (
-    <div className="flex items-center gap-2">
-      <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Display Name" className="border app-border rounded px-2 py-1 app-card text-sm" />
-      <input type="number" step="0.01" value={balanceResetAmount} onChange={e => setBalanceResetAmount(e.target.value)} placeholder="Set Balance" className="border app-border rounded px-2 py-1 app-card text-sm w-28" />
-      <input type="date" value={balanceResetDate} onChange={e => setBalanceResetDate(e.target.value)} className="border app-border rounded px-2 py-1 app-card text-sm" />
-      <button onClick={save} className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700">Save</button>
-      <button onClick={() => setOpen(false)} className="text-xs px-2 py-1 rounded border app-border">Cancel</button>
-    </div>
-  ) : (
-    <button onClick={() => setOpen(true)} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Edit</button>
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Edit</button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Edit Account">
+        <form className="grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={async (e) => { e.preventDefault(); await save(); }}>
+          <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Display Name" className="border app-border rounded px-3 py-2 app-card sm:col-span-2" required />
+          <select value={type} onChange={e => setType(e.target.value)} className="border app-border rounded px-3 py-2 app-card">
+            <option>Checking</option>
+            <option>Savings</option>
+          </select>
+          <input type="number" step="0.01" value={balanceResetAmount} onChange={e => setBalanceResetAmount(e.target.value)} onBlur={e => setBalanceResetAmount(formatMoneyStr(e.target.value))} placeholder="Set Balance (optional)" className="border app-border rounded px-3 py-2 app-card" />
+          <input type="date" value={balanceResetDate} onChange={e => setBalanceResetDate(e.target.value)} className="border app-border rounded px-3 py-2 app-card" />
+          <div className="sm:col-span-2 flex justify-end gap-2">
+            <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 rounded border app-border">Cancel</button>
+            <button className="px-3 py-2 rounded btn-primary">Save</button>
+          </div>
+        </form>
+      </Modal>
+    </>
   )
 }
 
 function BillForm({ onSubmit }) {
   const [name, setName] = useState('')
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState('0.00')
   const [startDate, setStartDate] = useState('')
   const [isRecurring, setIsRecurring] = useState(false)
   const [recurringType, setRecurringType] = useState('Monthly')
@@ -303,8 +370,8 @@ function BillForm({ onSubmit }) {
       <Field label="Bill Name">
   <input value={name} onChange={e => setName(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
       </Field>
-      <Field label="Amount">
-  <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
+    <Field label="Amount">
+  <input type="number" step="0.01" value={amount || '0.00'} onChange={e => setAmount(e.target.value)} onBlur={e => setAmount(formatMoneyStr(e.target.value))} className="w-full border app-border rounded px-3 py-2 app-card" required />
       </Field>
       <Field label="Due Date">
   <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
@@ -325,7 +392,10 @@ function BillForm({ onSubmit }) {
 }
 
 function TransactionForm({ onSubmit, accounts }) {
-  const [accountId, setAccountId] = useState('')
+  const [accountId, setAccountId] = useState(() => {
+    if (accounts && accounts.length === 1) return String(accounts[0].id || accounts[0].AccountId)
+    return ''
+  })
   const [date, setDate] = useState('')
   const [amount, setAmount] = useState('')
   const [type, setType] = useState('Debit')
@@ -343,13 +413,13 @@ function TransactionForm({ onSubmit, accounts }) {
           {accounts?.map(a => (
             <option key={a.id || a.AccountName} value={a.id}>{a.DisplayName}</option>
           ))}
-        </select>
+  </select>
       </Field>
       <Field label="Date">
   <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
       </Field>
-      <Field label="Amount">
-  <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
+    <Field label="Amount">
+  <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} onBlur={e => setAmount(formatMoneyStr(e.target.value))} className="w-full border app-border rounded px-3 py-2 app-card" required />
       </Field>
       <div className="flex items-center gap-3">
         <select value={type} onChange={e => setType(e.target.value)} className="border app-border rounded px-3 py-2 app-card">
@@ -376,7 +446,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
     let nextPayAfterToday = null;
     if (Array.isArray(paychecks) && paychecks.length) {
       const dates = paychecks
-        .map(p => new Date(p.StartDate || p.start_date))
+        .map(p => localDate(p.StartDate || p.start_date))
         .filter(d => !isNaN(d) && d > start)
         .sort((a,b) => a - b);
       nextPayAfterToday = dates[0] || null;
@@ -405,7 +475,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
     if (real > 0) return real / horizonDays;
     // Otherwise include upcoming inflows/outflows within today..horizonEnd
     const withinHorizon = (dateStr) => {
-      const d = new Date(dateStr);
+      const d = localDate(dateStr);
       if (isNaN(d)) return false;
       return d >= startOfToday && d <= horizonEnd;
     };
@@ -419,21 +489,37 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
     return spendable / horizonDays;
   }, [summary?.realBalance, paychecks, bills, horizonDays, horizonEnd, startOfToday]);
 
-  const recentDebits = useMemo(() => (transactions || []).filter(t => Number(t.Amount) < 0).slice(0, 20), [transactions]);
+  // Show most recent transactions (both debits and credits), so Manual Adjustments are included
+  const recentTx = useMemo(() => (transactions || []).slice(0, 20), [transactions]);
 
   return (
     <div>
       {/* Row 1:       npm --workspace client run dev, Daily Spend, Upcoming Bills total */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <Card title="Real Balance" value={loadingSummary ? '—' : currency(summary?.realBalance || 0)} accent="green" />
-        <Card title="Daily Spend" value={loadingSummary ? '—' : currency(dailySpend)} accent="purple" />
-        <Card title="Bills (Upcoming)" value={loadingSummary ? '—' : currency(summary?.upcomingTotal || 0)} accent="red" />
+        <Card
+          title="Real Balance"
+          value={loadingSummary ? '—' : currency(summary?.realBalance || 0)}
+          accent="green"
+          titleHelp="Current balance minus upcoming bills scheduled today or later."
+        />
+        <Card
+          title="Daily Spend"
+          value={loadingSummary ? '—' : currency(dailySpend)}
+          accent="purple"
+          titleHelp="Estimated amount you can spend per day until the sooner of the next paycheck or month end."
+        />
+        <Card
+          title="Bills (Upcoming)"
+          value={loadingSummary ? '—' : currency(summary?.upcomingTotal || 0)}
+          accent="red"
+          titleHelp="Sum of upcoming bills on or after today."
+        />
       </section>
 
       {/* Row 2: Accounts, Upcoming Paychecks, Upcoming Bills */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-3">
-          <Card title="Accounts">
+          <Card title="Accounts" titleAction={<NavLink to="/accounts" className="hover:underline">View →</NavLink>}>
             <List
               items={accountSummary}
               empty="No accounts"
@@ -447,7 +533,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
           </Card>
         </div>
         <div className="space-y-3">
-          <Card title="Upcoming Paychecks">
+          <Card title="Upcoming Paychecks" titleAction={<NavLink to="/recurring" className="hover:underline">View →</NavLink>}>
             <List
               items={paychecks}
               empty="No upcoming paychecks"
@@ -455,7 +541,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium truncate app-text">{p.PaycheckName || p.name}</div>
-                    <div className="text-xs app-muted">{new Date(p.StartDate || p.start_date).toLocaleDateString()} {(p.IsRecurring || p.is_recurring) ? `• ${p.RecurringType || p.recurring_type}` : ''}</div>
+                    <div className="text-xs app-muted">{localDate(p.StartDate || p.start_date)?.toLocaleDateString()} {(p.IsRecurring || p.is_recurring) ? `• ${p.RecurringType || p.recurring_type}` : ''}</div>
                   </div>
                   <div className="font-semibold text-emerald-700">{currency(p.Amount || p.estimated_amount)}</div>
                 </div>
@@ -464,7 +550,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
           </Card>
         </div>
         <div className="space-y-3">
-          <Card title="Upcoming Bills">
+          <Card title="Upcoming Bills" titleAction={<NavLink to="/recurring" className="hover:underline">View →</NavLink>}>
             <List
               items={bills}
               empty="No upcoming bills"
@@ -472,7 +558,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium truncate app-text">{b.BillName || b.name}</div>
-                    <div className="text-xs app-muted">{new Date(b.StartDate || b.start_date).toLocaleDateString()} {(b.IsRecurring || b.is_recurring) ? `• ${b.RecurringType || b.recurring_type}` : ''}</div>
+                    <div className="text-xs app-muted">{localDate(b.StartDate || b.start_date)?.toLocaleDateString()} {(b.IsRecurring || b.is_recurring) ? `• ${b.RecurringType || b.recurring_type}` : ''}</div>
                   </div>
                   <div className="font-semibold text-rose-700">{currency(b.Amount || b.estimated_amount)}</div>
                 </div>
@@ -482,24 +568,31 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
         </div>
         {/* Row 3: Recent debits full-width */}
         <div className="lg:col-span-3 space-y-3">
-          <Card title="Recent Transactions">
+      <Card title="Recent Transactions">
+            <div className="px-4 py-2 text-[11px] uppercase tracking-wide app-muted grid grid-cols-3 gap-3 sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur">
+              <div>Description • Date • Badges</div>
+              <div>Account</div>
+              <div className="text-right">Amount • Actions</div>
+            </div>
             <List
-              items={recentDebits}
-              empty="No recent debits"
+        items={recentTx}
+        empty="No recent transactions"
               renderItem={t => (
                 <div className="grid grid-cols-3 items-center gap-3">
                   <div className="min-w-0">
                     <div className="font-medium truncate app-text">{t.Description}</div>
-                    <div className="text-xs app-muted">{new Date(t.TransactionDate).toLocaleDateString()}</div>
+                    <div className="text-xs app-muted">{localDate(t.TransactionDate)?.toLocaleDateString()}</div>
                     <div className="mt-1 flex gap-1 flex-wrap">
                       {getTransactionBadges(t).map((b, i) => (
                         <Badge key={`${b.label}-${i}`} kind={b.kind}>{b.label}</Badge>
                       ))}
                     </div>
                   </div>
-                  <div className="min-w-0 text-sm app-muted truncate">{t.DisplayName || t.AccountName}</div>
+                  <div className="min-w-0 text-sm app-muted truncate">
+                    {t.Synthetic ? <Badge kind="pending">PENDING</Badge> : (t.DisplayName || t.AccountName)}
+                  </div>
                   <div className="flex items-center justify-end gap-2">
-                    <div className="font-semibold text-rose-700">{currency(t.Amount)}</div>
+                    <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
                     {t.Synthetic ? (
                       <button
                         onClick={async () => { await postJson(`/api/recurrings/${t.RecurringId}/skip`, {}); refreshMoney({ summary: true, accountBalances: true, transactions: true, bills: true, paychecks: true }); }}
@@ -521,26 +614,137 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
 }
 
 function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts, refreshMoney }) {
+  const [showAdd, setShowAdd] = useState(false)
+  const [showAdjust, setShowAdjust] = useState(false)
+  // Default account for adjustment: if exactly one account, default to it; otherwise remember last choice
+  const onlyAccountId = accounts && accounts.length === 1 ? (accounts[0].id || accounts[0].AccountId) : null
+  const [adjustAcctId, setAdjustAcctId] = useState(onlyAccountId || '')
+  const [adjustAmount, setAdjustAmount] = useState('')
+  const [adjustDate, setAdjustDate] = useState(() => new Date().toISOString().slice(0,10))
+  // Keep default in sync when accounts list changes and only one exists
+  useEffect(() => {
+    if (accounts && accounts.length === 1) {
+      setAdjustAcctId(accounts[0].id || accounts[0].AccountId)
+    }
+  }, [accounts])
+  // Fetch archived accounts
+  const { data: archivedAccounts } = useApi('/api/accounts?archived=1')
   return (
     <div className="space-y-6">
-      <Card title="Accounts" value="">
+      <Card title="Accounts" value="" titleAction={
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowAdd(true)} className="text-xs px-2 py-1 rounded btn-primary">Add Account</button>
+          <button onClick={() => setShowAdjust(true)} className="text-xs px-2 py-1 rounded border app-border">Set Manual Balance</button>
+        </div>
+      }>
+        {/* Checking Accounts */}
+        <div className="px-4 py-2 text-[11px] uppercase tracking-wide app-muted sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur">Checking</div>
+        <div className="px-4 py-2 text-[11px] uppercase tracking-wide app-muted grid grid-cols-5 gap-3 sticky top-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur">
+          <div>Type</div>
+          <div>Internal Name</div>
+          <div>Display Name</div>
+          <div>Amount</div>
+          <div className="text-right">Actions</div>
+        </div>
         <List
-          items={accountSummary}
-          empty="No accounts"
+          items={(accountSummary || []).filter(a => (a.AccountType || 'Checking') !== 'Savings')}
+          empty="No checking accounts"
           renderItem={a => (
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-medium app-text">{a.DisplayName}</div>
-              <div className={`font-semibold ${a.Balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{currency(a.Balance)}</div>
-              <div className="flex items-center gap-2">
-                <AccountInlineEdit a={a} onSaved={async () => { refreshMoney({ summary: true, accountBalances: true, accountList: true }); }} />
+            <div className="grid grid-cols-5 items-center gap-3">
+              <div className="text-xs app-muted">{a.AccountType || 'Checking'}</div>
+              <div className="min-w-0 text-sm app-muted truncate">{a.AccountName}</div>
+              <div className="min-w-0 font-medium app-text truncate">{a.DisplayName}</div>
+              <div className={`font-semibold ${a.Balance < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{currency(a.Balance)}</div>
+              <div className="flex items-center justify-end gap-2">
+                <AccountInlineEdit a={a} onSaved={async () => { refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true }); }} />
+                <button onClick={async () => { await del(`/api/accounts/${a.AccountId}`); refreshMoney({ summary: true, accountBalances: true, accountList: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Archive</button>
+              </div>
+            </div>
+          )}
+        />
+        {/* Savings Accounts */}
+        <div className="mt-6 px-4 py-2 text-[11px] uppercase tracking-wide app-muted sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur">Savings</div>
+        <div className="px-4 py-2 text-[11px] uppercase tracking-wide app-muted grid grid-cols-5 gap-3 sticky top-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur">
+          <div>Type</div>
+          <div>Internal Name</div>
+          <div>Display Name</div>
+          <div>Amount</div>
+          <div className="text-right">Actions</div>
+        </div>
+        <List
+          items={(accountSummary || []).filter(a => (a.AccountType || 'Checking') === 'Savings')}
+          empty="No savings accounts"
+          renderItem={a => (
+            <div className="grid grid-cols-5 items-center gap-3">
+              <div className="text-xs app-muted">{a.AccountType || 'Savings'}</div>
+              <div className="min-w-0 text-sm app-muted truncate">{a.AccountName}</div>
+              <div className="min-w-0 font-medium app-text truncate">{a.DisplayName}</div>
+              <div className={`font-semibold ${a.Balance < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{currency(a.Balance)}</div>
+              <div className="flex items-center justify-end gap-2">
+                <AccountInlineEdit a={a} onSaved={async () => { refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true }); }} />
                 <button onClick={async () => { await del(`/api/accounts/${a.AccountId}`); refreshMoney({ summary: true, accountBalances: true, accountList: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-slate-900 hover:bg-black/5 dark:text-white dark:hover:bg-white/10">Archive</button>
               </div>
             </div>
           )}
         />
       </Card>
-      <Card title="Add Account" value="">
-  <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); refreshMoney({ summary: true, accountBalances: true, accountList: true }); }} />
+      {/* Add Account Modal */}
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Account">
+        <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); setShowAdd(false); refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true }); }} />
+      </Modal>
+      {/* Set Manual Balance Adjustment Modal */}
+      <Modal open={showAdjust} onClose={() => setShowAdjust(false)} title="Set Manual Balance">
+        <form className="space-y-3" onSubmit={async (e) => {
+          e.preventDefault();
+          if (!adjustAcctId) return;
+          await fetch(`${API_URL}/api/accounts/${adjustAcctId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ balanceResetDate: adjustDate, balanceResetAmount: Number(adjustAmount || 0) })
+          })
+          setShowAdjust(false)
+          setAdjustAmount('')
+          refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true })
+        }}>
+          {(!accounts || accounts.length !== 1) && (
+            <Field label="Account">
+              <select value={adjustAcctId} onChange={e => setAdjustAcctId(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required>
+                <option value="" disabled>Select account</option>
+                {accounts?.map(a => (
+                  <option key={a.id || a.AccountId} value={a.id || a.AccountId}>{a.DisplayName}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {accounts && accounts.length === 1 && (
+            <div className="text-sm app-muted">Account: {accounts[0].DisplayName}</div>
+          )}
+          <Field label="Set Balance To">
+            <input type="number" step="0.01" value={adjustAmount || '0.00'} onChange={e => setAdjustAmount(e.target.value)} onBlur={e => setAdjustAmount(formatMoneyStr(e.target.value))} className="w-full border app-border rounded px-3 py-2 app-card" required />
+          </Field>
+          <Field label="Effective Date">
+            <input type="date" value={adjustDate} onChange={e => setAdjustDate(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setShowAdjust(false)} className="px-3 py-2 rounded border app-border">Cancel</button>
+            <button className="px-3 py-2 rounded btn-primary">Save</button>
+          </div>
+        </form>
+      </Modal>
+      {/* Archived Accounts */}
+      <Card title="Archived Accounts" value="">
+        <List
+          items={archivedAccounts}
+          empty="No archived accounts"
+          renderItem={a => (
+            <div className="grid grid-cols-4 items-center gap-3">
+              <div className="min-w-0 text-sm app-muted truncate">{a.AccountName}</div>
+              <div className="min-w-0 font-medium app-text truncate">{a.DisplayName}</div>
+              <div className="text-sm app-muted">—</div>
+              <div className="text-right text-xs app-muted">Archived</div>
+            </div>
+          )}
+        />
       </Card>
     </div>
   )
@@ -557,28 +761,33 @@ function BillsPage({ bills, loadingBills, postJson, del, reloadBills, reloadSumm
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-medium app-text truncate">{b.BillName}</div>
-                <div className="text-xs app-muted">{new Date(b.StartDate).toLocaleDateString()} {b.IsRecurring ? `• ${b.RecurringType}` : ''}</div>
+                <div className="text-xs app-muted">{localDate(b.StartDate)?.toLocaleDateString()} {b.IsRecurring ? `• ${b.RecurringType}` : ''}</div>
               </div>
               <div className="font-semibold text-rose-700">{currency(b.Amount)}</div>
-              <button onClick={async () => { await del(`/api/bills/${b.id}`); reloadBills(); refreshMoney({ summary: true }); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
+              <button onClick={async () => { await del(`/api/bills/${b.id}`); reloadBills(); refreshMoney({ summary: true, transactions: true }); window.dispatchEvent(new Event('recurrings:reload')); window.dispatchEvent(new Event('transactions:reload')); }} className="text-xs px-2 py-1 rounded border app-border bg-transparent text-rose-700 hover:bg-black/5 dark:text-rose-400 dark:hover:bg-white/10">Delete</button>
             </div>
           )}
         />
       </Card>
       <Card title="Add Bill" value="">
-  <BillForm onSubmit={async (payload) => { await postJson('/api/bills', payload); reloadBills(); refreshMoney({ summary: true }); }} />
+  <BillForm onSubmit={async (payload) => { await postJson('/api/bills', payload); reloadBills(); refreshMoney({ summary: true, transactions: true }); window.dispatchEvent(new Event('recurrings:reload')); window.dispatchEvent(new Event('transactions:reload')); }} />
       </Card>
     </div>
   )
 }
 
-function RecurringForm({ onSubmit }) {
+function RecurringForm({ onSubmit, defaultType = 'Bill', defaultRecurringType = 'Monthly' }) {
   const [name, setName] = useState('')
-  const [type, setType] = useState('Bill')
-  const [estimatedAmount, setEstimatedAmount] = useState('')
+  const [type, setType] = useState(defaultType)
+  const [estimatedAmount, setEstimatedAmount] = useState('0.00')
   const [startDate, setStartDate] = useState('')
   const [isRecurring, setIsRecurring] = useState(true)
-  const [recurringType, setRecurringType] = useState('Monthly')
+  const [recurringType, setRecurringType] = useState(defaultRecurringType)
+  useEffect(() => {
+    setType(defaultType);
+    setRecurringType(defaultRecurringType);
+    setIsRecurring(true);
+  }, [defaultType, defaultRecurringType]);
   return (
     <form className="p-4 space-y-2" onSubmit={async (e) => {
       e.preventDefault();
@@ -596,7 +805,7 @@ function RecurringForm({ onSubmit }) {
           </select>
         </Field>
         <Field label="Estimated Amount">
-          <input type="number" step="0.01" value={estimatedAmount} onChange={e => setEstimatedAmount(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
+          <input type="number" step="0.01" value={estimatedAmount} onChange={e => setEstimatedAmount(e.target.value)} onBlur={e => setEstimatedAmount(formatMoneyStr(e.target.value))} className="w-full border app-border rounded px-3 py-2 app-card" required />
         </Field>
         <Field label="Start Date">
           <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
@@ -622,8 +831,11 @@ function RecurringForm({ onSubmit }) {
 function RecurringConfirm({ r, accounts, onConfirm }) {
   const [open, setOpen] = useState(false)
   const [date, setDate] = useState(() => new Date().toISOString().slice(0,10))
-  const [amount, setAmount] = useState(String(r.estimated_amount || r.Amount || ''))
-  const [accountId, setAccountId] = useState('')
+  const [amount, setAmount] = useState(formatMoneyStr(String(r.estimated_amount || r.Amount || '0')))
+  const [accountId, setAccountId] = useState(() => {
+    if (accounts && accounts.length === 1) return String(accounts[0].id || accounts[0].AccountId)
+    return ''
+  })
   return (
     <div className="flex items-center gap-2">
       {!open ? (
@@ -631,7 +843,7 @@ function RecurringConfirm({ r, accounts, onConfirm }) {
       ) : (
         <form className="flex items-center gap-2" onSubmit={async (e) => { e.preventDefault(); await onConfirm({ date, amount: Number(amount), accountId: Number(accountId) }); setOpen(false); }}>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border app-border rounded px-2 py-1 app-card text-sm" required />
-          <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="border app-border rounded px-2 py-1 app-card w-28 text-sm" required />
+          <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} onBlur={e => setAmount(formatMoneyStr(e.target.value))} className="border app-border rounded px-2 py-1 app-card w-28 text-sm" required />
           <select value={accountId} onChange={e => setAccountId(e.target.value)} className="border app-border rounded px-2 py-1 app-card text-sm" required>
             <option value="" disabled>Select account</option>
             {accounts?.map(a => (
@@ -652,6 +864,8 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
   const paychecks = useMemo(() => (recurrings || []).filter(r => r.type === 'Paycheck'), [recurrings])
   const [edit, setEdit] = useState(null)
   const [form, setForm] = useState({ name: '', type: 'Bill', estimatedAmount: '', startDate: '', isRecurring: true, recurringType: 'Monthly' })
+  const [showAddBill, setShowAddBill] = useState(false)
+  const [showAddPaycheck, setShowAddPaycheck] = useState(false)
   const beginEdit = (r) => {
     setEdit(r.id)
     setForm({
@@ -663,12 +877,27 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
       recurringType: r.recurring_type || 'Monthly',
     })
   }
+  useEffect(() => {
+    const onReload = () => reloadRecurrings();
+    window.addEventListener('recurrings:reload', onReload);
+    return () => window.removeEventListener('recurrings:reload', onReload);
+  }, [reloadRecurrings]);
   return (
     <div className="space-y-6">
-  <Card title="Recurring" value="">
+  <Card title="Recurring" value="" titleAction={
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowAddPaycheck(true)} className="text-xs px-2 py-1 rounded btn-primary">Add Paycheck</button>
+          <button onClick={() => setShowAddBill(true)} className="text-xs px-2 py-1 rounded border app-border">Add Bill</button>
+        </div>
+      }>
         <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             <div className="font-semibold mb-2">Paychecks</div>
+            <div className="px-4 py-2 text-[11px] uppercase tracking-wide app-muted grid grid-cols-3 gap-3 sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur">
+              <div>Name • Status</div>
+              <div>Start Date</div>
+              <div className="text-right">Amount • Actions</div>
+            </div>
             <List
               items={paychecks}
               empty="No paychecks"
@@ -676,7 +905,7 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium app-text truncate">{r.name}</div>
-                    <div className="text-xs app-muted">{new Date(r.start_date || r.StartDate).toLocaleDateString()} • {r.recurring_type || r.RecurringType || 'Once'}</div>
+                    <div className="text-xs app-muted">{localDate(r.start_date || r.StartDate)?.toLocaleDateString()} • {r.recurring_type || r.RecurringType || 'Once'}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-semibold text-emerald-700">{currency(r.estimated_amount || r.Amount)}</div>
@@ -690,6 +919,11 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
           </div>
           <div>
             <div className="font-semibold mb-2">Bills</div>
+            <div className="px-4 py-2 text-[11px] uppercase tracking-wide app-muted grid grid-cols-3 gap-3 sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur">
+              <div>Name • Status</div>
+              <div>Start Date</div>
+              <div className="text-right">Amount • Actions</div>
+            </div>
             <List
               items={bills}
               empty="No bills"
@@ -697,7 +931,7 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium app-text truncate">{r.name || r.BillName}</div>
-                    <div className="text-xs app-muted">{new Date(r.start_date || r.StartDate).toLocaleDateString()} • {r.recurring_type || r.RecurringType || 'Once'}</div>
+                    <div className="text-xs app-muted">{localDate(r.start_date || r.StartDate)?.toLocaleDateString()} • {r.recurring_type || r.RecurringType || 'Once'}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-semibold text-rose-700">{currency(r.estimated_amount || r.Amount)}</div>
@@ -711,9 +945,8 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
           </div>
         </div>
       </Card>
-      {edit && (
-        <Card title="Edit Recurring" value="">
-          <form className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={async (e) => {
+  <Modal open={!!edit} onClose={() => setEdit(null)} title="Edit Recurring">
+      <form className="grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={async (e) => {
             e.preventDefault();
             const payload = {
               name: form.name,
@@ -733,7 +966,7 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
               <option>Bill</option>
               <option>Paycheck</option>
             </select>
-            <input type="number" step="0.01" value={form.estimatedAmount} onChange={e => setForm(v => ({...v, estimatedAmount: e.target.value}))} placeholder="Amount" className="border app-border rounded px-3 py-2 app-card" required />
+    <input type="number" step="0.01" value={form.estimatedAmount} onChange={e => setForm(v => ({...v, estimatedAmount: e.target.value}))} onBlur={e => setForm(v => ({...v, estimatedAmount: formatMoneyStr(e.target.value)}))} placeholder="Amount" className="border app-border rounded px-3 py-2 app-card" required />
             <input type="date" value={form.startDate} onChange={e => setForm(v => ({...v, startDate: e.target.value}))} className="border app-border rounded px-3 py-2 app-card" required />
             <label className="sm:col-span-2 text-sm app-text flex items-center gap-2">
               <input type="checkbox" checked={form.isRecurring} onChange={e => setForm(v => ({...v, isRecurring: e.target.checked}))} /> Recurring
@@ -752,11 +985,31 @@ function RecurringPage({ accounts, postJson, patchJson, del, reloadSummary, relo
               <button type="button" onClick={() => setEdit(null)} className="px-3 py-2 rounded border app-border">Cancel</button>
             </div>
           </form>
-        </Card>
-      )}
-      <Card title="Add Recurring" value="">
-  <RecurringForm onSubmit={async (payload) => { await postJson('/api/recurrings', payload); reloadRecurrings(); refreshMoney({ summary: true, accountBalances: true, bills: true, paychecks: true }); }} />
-      </Card>
+  </Modal>
+      <Modal open={showAddPaycheck} onClose={() => setShowAddPaycheck(false)} title="Add Paycheck">
+        <RecurringForm
+          defaultType="Paycheck"
+          defaultRecurringType="Bi-Weekly"
+          onSubmit={async (payload) => {
+            await postJson('/api/recurrings', payload);
+            setShowAddPaycheck(false);
+            reloadRecurrings();
+            refreshMoney({ summary: true, accountBalances: true, bills: true, paychecks: true });
+          }}
+        />
+      </Modal>
+      <Modal open={showAddBill} onClose={() => setShowAddBill(false)} title="Add Bill">
+        <RecurringForm
+          defaultType="Bill"
+          defaultRecurringType="Monthly"
+          onSubmit={async (payload) => {
+            await postJson('/api/recurrings', payload);
+            setShowAddBill(false);
+            reloadRecurrings();
+            refreshMoney({ summary: true, accountBalances: true, bills: true, paychecks: true });
+          }}
+        />
+      </Modal>
     </div>
   )
 }
@@ -765,6 +1018,17 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
   const [editId, setEditId] = useState(null)
   const [editSynthetic, setEditSynthetic] = useState(false)
   const [form, setForm] = useState({ date: '', amount: '', type: 'Debit', status: 'confirmed', description: '', accountId: '' })
+  const [showAdd, setShowAdd] = useState(false)
+  // Filters
+  const [filterAccountName, setFilterAccountName] = useState('')
+  const [filterStart, setFilterStart] = useState('')
+  const [filterEnd, setFilterEnd] = useState('')
+  const [filterQuery, setFilterQuery] = useState('')
+  useEffect(() => {
+    const onReload = () => reloadTx();
+    window.addEventListener('transactions:reload', onReload);
+    return () => window.removeEventListener('transactions:reload', onReload);
+  }, [reloadTx]);
   const beginEdit = (t) => {
     setEditId(t.id)
     const synthetic = Boolean(t.Synthetic)
@@ -780,24 +1044,84 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
       accountId: (t.account_id || t.accountId || '')
     })
   }
+  const filteredTx = useMemo(() => {
+    let list = Array.isArray(transactions) ? transactions : [];
+    if (filterAccountName) {
+      if (filterAccountName === '__unassigned__') list = list.filter(t => t.Synthetic);
+      else list = list.filter(t => (t.AccountName || '') === filterAccountName);
+    }
+    if (filterStart) {
+      const s = localDate(filterStart);
+      list = list.filter(t => {
+        const d = localDate(t.TransactionDate);
+        return d && s && d >= s;
+      });
+    }
+    if (filterEnd) {
+      const e = localDate(filterEnd);
+      const end = e ? new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59, 999) : null;
+      list = list.filter(t => {
+        const d = localDate(t.TransactionDate);
+        return d && end && d <= end;
+      });
+    }
+    const q = (filterQuery || '').trim().toLowerCase();
+    if (q) {
+      list = list.filter(t => {
+        const desc = String(t.Description || '').toLowerCase();
+        const amtStr = Math.abs(Number(t.Amount || 0)).toFixed(2);
+        return desc.includes(q) || amtStr.includes(q);
+      });
+    }
+    return list;
+  }, [transactions, filterAccountName, filterStart, filterEnd, filterQuery]);
   return (
     <div className="space-y-6">
-  <Card title="Transactions" value="">
+  <Card title="Transactions" value="" titleAction={<button onClick={() => setShowAdd(true)} className="text-xs px-2 py-1 rounded btn-primary">Add</button>}>
+        {/* Filters */}
+        <div className="p-4 pt-3 grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="md:col-span-2 flex gap-2">
+            <input value={filterQuery} onChange={e => setFilterQuery(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card text-sm" placeholder="Search description or amount" />
+            <button type="button" onClick={() => { setFilterAccountName(''); setFilterStart(''); setFilterEnd(''); setFilterQuery(''); }} className="px-3 py-2 rounded border app-border text-sm">Clear</button>
+          </div>
+          <div>
+            <select value={filterAccountName} onChange={e => setFilterAccountName(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card text-sm min-w-[10rem]">
+              <option value="">All accounts</option>
+              <option value="__unassigned__">Pending</option>
+              {accounts?.map(a => (
+                <option key={a.id || a.AccountName} value={a.AccountName}>{a.DisplayName}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <input type="date" value={filterStart} onChange={e => setFilterStart(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card text-sm" placeholder="Start" />
+          </div>
+          <div>
+            <input type="date" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card text-sm" placeholder="End" />
+          </div>
+        </div>
+  <div className="px-4 py-2 text-[11px] uppercase tracking-wide app-muted grid grid-cols-3 gap-3 sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur">
+          <div>Description • Date • Transaction Type</div>
+          <div>Account</div>
+          <div className="text-right">Amount • Actions</div>
+        </div>
         <List
-          items={transactions}
+          items={filteredTx}
           empty="No transactions"
           renderItem={t => (
             <div className="grid grid-cols-3 items-center gap-3">
               <div className="min-w-0">
                 <div className="font-medium truncate app-text">{t.Description}</div>
-                <div className="text-xs app-muted">{new Date(t.TransactionDate).toLocaleDateString()}</div>
+                <div className="text-xs app-muted">{localDate(t.TransactionDate)?.toLocaleDateString()}</div>
                 <div className="mt-1 flex gap-1 flex-wrap">
                   {getTransactionBadges(t).map((b, i) => (
                     <Badge key={`${b.label}-${i}`} kind={b.kind}>{b.label}</Badge>
                   ))}
                 </div>
               </div>
-              <div className="min-w-0 text-sm app-muted truncate">{t.DisplayName || t.AccountName}</div>
+                  <div className="min-w-0 text-sm app-muted truncate">
+                    {t.Synthetic ? <Badge kind="pending">PENDING</Badge> : (t.DisplayName || t.AccountName)}
+                  </div>
               <div className="flex items-center justify-end gap-2">
                 <div className={`font-semibold ${t.Amount < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{currency(t.Amount)}</div>
                 {t.Synthetic ? (
@@ -822,9 +1146,8 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
           )}
         />
       </Card>
-      {editId && (
-        <Card title="Edit Transaction" value="">
-          <form className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={async (e) => {
+  <Modal open={!!editId} onClose={() => setEditId(null)} title="Edit Transaction">
+      <form className="grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={async (e) => {
             e.preventDefault();
             const payload = {
               date: form.date,
@@ -839,7 +1162,7 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
             reloadTx(); reloadSummary(); reloadAcct();
           }}>
             <input type="date" value={form.date} onChange={e => setForm(v => ({...v, date: e.target.value}))} className="border app-border rounded px-3 py-2 app-card" required />
-            <input type="number" step="0.01" value={form.amount} onChange={e => setForm(v => ({...v, amount: e.target.value}))} className="border app-border rounded px-3 py-2 app-card" required />
+    <input type="number" step="0.01" value={form.amount} onChange={e => setForm(v => ({...v, amount: e.target.value}))} onBlur={e => setForm(v => ({...v, amount: formatMoneyStr(e.target.value)}))} className="border app-border rounded px-3 py-2 app-card" required />
             <select value={form.type} onChange={e => setForm(v => ({...v, type: e.target.value}))} className="border app-border rounded px-3 py-2 app-card">
               <option>Debit</option>
               <option>Credit</option>
@@ -866,11 +1189,10 @@ function TransactionsPage({ transactions, loadingTx, accounts, postJson, patchJs
               <button type="button" onClick={() => setEditId(null)} className="px-3 py-2 rounded border app-border">Cancel</button>
             </div>
           </form>
-        </Card>
-      )}
-      <Card title="Add Transaction" value="">
-        <TransactionForm accounts={accounts} onSubmit={async (payload) => { await postJson('/api/transactions', payload); reloadTx(); reloadSummary(); reloadAcct(); }} />
-      </Card>
+  </Modal>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Transaction">
+        <TransactionForm accounts={accounts} onSubmit={async (payload) => { await postJson('/api/transactions', payload); setShowAdd(false); reloadTx(); reloadSummary(); reloadAcct(); }} />
+      </Modal>
     </div>
   )
 }

@@ -81,8 +81,10 @@ try {
 // Progressive migration: add manual balance reset support to accounts
 try {
   const aCols = db.prepare("PRAGMA table_info('accounts')").all();
+  const hasType = aCols.some(c => c.name === 'type');
   const hasResetDate = aCols.some(c => c.name === 'balance_reset_date');
   const hasResetAmount = aCols.some(c => c.name === 'balance_reset_amount');
+  if (!hasType) db.prepare("ALTER TABLE accounts ADD COLUMN type TEXT NOT NULL DEFAULT 'Checking'").run();
   if (!hasResetDate) db.prepare('ALTER TABLE accounts ADD COLUMN balance_reset_date TEXT').run();
   if (!hasResetAmount) db.prepare('ALTER TABLE accounts ADD COLUMN balance_reset_amount REAL').run();
 } catch (e) {

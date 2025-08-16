@@ -17,7 +17,9 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 app.get('/api/accounts', (req, res) => {
   try {
-    const rows = db.prepare('SELECT id, name as AccountName, display_name as DisplayName, initial_balance FROM accounts WHERE archived=0 ORDER BY display_name').all();
+  const { archived } = req.query || {};
+  const flag = String(archived) === '1' ? 1 : 0;
+  const rows = db.prepare('SELECT id, name as AccountName, display_name as DisplayName, initial_balance, type as AccountType FROM accounts WHERE archived=? ORDER BY display_name').all(flag);
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -26,22 +28,22 @@ app.get('/api/accounts', (req, res) => {
 
 app.post('/api/accounts', express.json(), (req, res) => {
   try {
-    const { name, displayName, initialBalance = 0 } = req.body || {};
+  const { name, displayName, initialBalance = 0, type = 'Checking' } = req.body || {};
     if (!name || !displayName) return res.status(400).json({ error: 'name and displayName required' });
     // Create account with zero initial balance; track the provided initial as a Manual Adjustment transaction
-    const insertAcct = db.prepare('INSERT INTO accounts(name, display_name, initial_balance) VALUES (?, ?, ?)');
-    const info = insertAcct.run(String(name), String(displayName), 0);
+  const insertAcct = db.prepare('INSERT INTO accounts(name, display_name, initial_balance, type) VALUES (?, ?, ?, ?)');
+  const info = insertAcct.run(String(name), String(displayName), 0, String(type));
     const id = info.lastInsertRowid;
     const init = Number(initialBalance || 0);
-    if (init !== 0) {
+  if (init !== 0) {
       let amt = Math.abs(init);
       let tType = init >= 0 ? 'Credit' : 'Debit';
       if (tType === 'Debit') amt = -amt;
       const today = new Date().toISOString().slice(0,10);
       db.prepare('INSERT INTO transactions(account_id, date, amount, type, status, description) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, today, amt, tType, 'confirmed', 'Manual Adjustment (Initial Balance)');
+    .run(id, today, amt, tType, 'confirmed', 'Initial Balance');
     }
-    res.status(201).json({ id, name, displayName, initialBalance: init });
+  res.status(201).json({ id, name, displayName, initialBalance: init, type });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -62,10 +64,11 @@ app.patch('/api/accounts/:id', express.json(), (req, res) => {
   try {
     const existing = db.prepare('SELECT * FROM accounts WHERE id=? AND archived=0').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Not found' });
-    const { displayName, name, balanceResetDate, balanceResetAmount } = req.body || {};
+    const { displayName, name, type, balanceResetDate, balanceResetAmount } = req.body || {};
     const next = {
       name: name != null ? String(name) : existing.name,
       display_name: displayName != null ? String(displayName) : existing.display_name,
+      type: type != null ? String(type) : existing.type,
       balance_reset_date: existing.balance_reset_date,
       balance_reset_amount: existing.balance_reset_amount,
     };
@@ -78,10 +81,10 @@ app.patch('/api/accounts/:id', express.json(), (req, res) => {
       let tType = target >= 0 ? 'Credit' : 'Debit';
       if (tType === 'Debit') amt = -amt;
       db.prepare('INSERT INTO transactions(account_id, date, amount, type, status, description) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(existing.id, String(balanceResetDate), amt, tType, 'confirmed', 'Manual Adjustment');
+        .run(existing.id, String(balanceResetDate), amt, tType, 'confirmed', 'Balance Adjustment');
     }
-    const info = db.prepare('UPDATE accounts SET name=?, display_name=?, balance_reset_date=?, balance_reset_amount=? WHERE id=?')
-      .run(next.name, next.display_name, next.balance_reset_date, next.balance_reset_amount, req.params.id);
+    const info = db.prepare('UPDATE accounts SET name=?, display_name=?, type=?, balance_reset_date=?, balance_reset_amount=? WHERE id=?')
+      .run(next.name, next.display_name, next.type, next.balance_reset_date, next.balance_reset_amount, req.params.id);
     res.json({ ok: true, changes: info.changes });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -354,10 +357,13 @@ app.get('/api/summary', (req, res) => {
           ELSE 
             (a.initial_balance + IFNULL((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id), 0))
         END as Balance
+      , a.type as AccountType
       FROM accounts a
       WHERE a.archived=0
     `).all();
-    const currentBalance = acctBalances.reduce((s, r) => s + (Number(r.Balance) || 0), 0);
+    const currentBalance = acctBalances
+      .filter(r => (r.AccountType || 'Checking') !== 'Savings')
+      .reduce((s, r) => s + (Number(r.Balance) || 0), 0);
   const bills = db.prepare("SELECT estimated_amount as amount, start_date FROM recurrings WHERE archived=0 AND type='Bill'").all();
     const today = dayjs().startOf('day');
     const upcomingTotal = bills
@@ -377,6 +383,7 @@ app.get('/api/accounts-summary', (req, res) => {
         a.id as AccountId,
         a.name as AccountName,
         a.display_name as DisplayName,
+  a.type as AccountType,
         CASE 
           WHEN a.balance_reset_date IS NOT NULL AND a.balance_reset_amount IS NOT NULL THEN 
       (0 + IFNULL((SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.id AND date(t.date) >= date(a.balance_reset_date)), 0))
