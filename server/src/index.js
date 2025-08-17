@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -12,7 +13,8 @@ import { errorHandler } from './middleware/error.js';
 dayjs.extend(customParseFormat);
 
 const app = express();
-app.use(cors());
+const corsOrigin = process.env.CORS_ORIGIN || false; // false lets cors allow any origin; set explicit origin when provided
+app.use(cors(corsOrigin ? { origin: corsOrigin } : undefined));
 app.use(express.json());
 
 // Unauthenticated endpoints

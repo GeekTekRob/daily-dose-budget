@@ -1,7 +1,8 @@
+import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-// In production, keep these in env vars
+// In production, keep these in env vars (loaded via dotenv)
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 

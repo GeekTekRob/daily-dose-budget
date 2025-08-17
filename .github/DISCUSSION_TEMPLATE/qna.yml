@@ -1,0 +1,15 @@
+name: Q&A
+description: Ask a question and get help from the community
+discussion_category_name: Q&A
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your question! Share details so folks can help quickly.
+  - type: textarea
+    id: context
+    attributes:
+      label: What are you trying to do?
+      description: Include steps, expected vs actual, and any screenshots.
+    validations:
+      required: true

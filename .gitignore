@@ -12,11 +12,22 @@ server/public/
 .env.*
 
 ## Local app data (SQLite DB)
-data/
+./data/
 
 ## OS / Editor
 .DS_Store
+Thumbs.db
 *.log
+.vscode/
+.idea/
+
+## Test coverage / reports
+coverage/
+.nyc_output/
+
+## npm/yarn debug logs
+npm-debug.log*
+yarn-error.log*
 
 ## Vite / cache
 .vite/
@@ -24,6 +35,3 @@ data/
 ## Docker artifacts created locally
 .docker/
 docker-compose.override.yml
-
-## Do not commit the following helper file
-copilot-instructions.md
