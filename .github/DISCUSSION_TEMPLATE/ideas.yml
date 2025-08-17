@@ -1,0 +1,17 @@
+name: Ideas
+description: Share an idea to improve the project
+discussion_category_name: Ideas
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One-liner of the idea
+      placeholder: Add monthly trends chart
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: Details
+      description: Describe the idea and potential value

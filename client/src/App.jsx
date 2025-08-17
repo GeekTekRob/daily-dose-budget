@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
+import LoginPage from './LoginPage'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
@@ -33,9 +34,15 @@ function useApi(path) {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch(`${API_URL}${path}`)
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    fetch(`${API_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
       .then(r => {
-        if (!r.ok) throw new Error('Network error')
+        if (!r.ok) {
+          if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+          throw new Error('Network error')
+        }
         return r.json()
       })
       .then(json => !cancelled && setData(json))
@@ -96,12 +103,28 @@ function List({ items, renderItem, empty }) {
 }
 
 function App() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    const onAuthRequired = () => navigate('/login')
+    window.addEventListener('auth:required', onAuthRequired)
+    return () => window.removeEventListener('auth:required', onAuthRequired)
+  }, [navigate])
+  const [loggedIn, setLoggedIn] = useState(() => !!(localStorage.getItem('token') || sessionStorage.getItem('token')))
   const { data: summary, loading: loadingSummary, reload: reloadSummary } = useApi('/api/summary')
   const { data: transactions, loading: loadingTx, reload: reloadTx } = useApi('/api/transactions')
   const { data: bills, loading: loadingBills, reload: reloadBills } = useApi('/api/bills')
   const { data: paychecks, loading: loadingPaychecks, reload: reloadPaychecks } = useApi('/api/paychecks')
   const { data: accounts, reload: reloadAccounts } = useApi('/api/accounts')
   const { data: accountSummary, loading: loadingAcct, reload: reloadAcct } = useApi('/api/accounts-summary')
+  // Centralized logout helper: clear token, set state and show login modal, and refresh UI data
+  const logout = () => {
+    localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
+    setLoggedIn(false)
+    navigate('/login')
+    // Force reloads so sensitive data is cleared / re-fetched (will trigger auth modal on 401)
+    refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true, bills: true, paychecks: true })
+  }
 
   const acctDisplay = useMemo(() => {
     const map = new Map()
@@ -110,28 +133,49 @@ function App() {
   }, [accounts])
 
   async function postJson(url, body) {
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token')
     const r = await fetch(`${API_URL}${url}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
     })
-    if (!r.ok) throw new Error('Request failed')
+    if (!r.ok) {
+      if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+      throw new Error('Request failed')
+    }
     return r.json().catch(() => ({}))
   }
 
   async function patchJson(url, body) {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
     const r = await fetch(`${API_URL}${url}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
     })
-    if (!r.ok) throw new Error('Request failed')
+    if (!r.ok) {
+      if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+      throw new Error('Request failed')
+    }
     return r.json().catch(() => ({}))
   }
 
   async function del(url) {
-    const r = await fetch(`${API_URL}${url}`, { method: 'DELETE' })
-    if (!r.ok) throw new Error('Request failed')
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    const r = await fetch(`${API_URL}${url}`, {
+      method: 'DELETE',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+    if (!r.ok) {
+      if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+      throw new Error('Request failed')
+    }
     return r.json().catch(() => ({}))
   }
 
@@ -166,14 +210,15 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <div>
+    <div>
         <header className="md:hidden flex items-center justify-between px-4 py-3 app-border border-b">
           <button aria-label="Open Menu" onClick={() => setSidebarOpen(true)} className="p-2 rounded hover:bg-black/5 dark:hover:bg-white/10">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6"><path d="M4 6h16M4 12h16M4 18h16" strokeWidth="2" strokeLinecap="round"/></svg>
           </button>
           <div className="font-bold">Daily Dose Budget</div>
-          <span className="w-6" />
+          <button onClick={() => (loggedIn ? logout() : navigate('/login'))} className="text-xs px-2 py-1 rounded border app-border">
+            {loggedIn ? 'Logout' : 'Login'}
+          </button>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] md:h-screen">
@@ -186,7 +231,12 @@ function App() {
               <NavLink to="/recurring" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Recurring</NavLink>
               <NavLink to="/transactions" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Transactions</NavLink>
             </nav>
-            <div className="mt-auto pt-6"><ThemeToggle theme={theme} setTheme={setTheme} /></div>
+            <div className="mt-auto pt-6 flex items-center justify-between gap-2">
+              <ThemeToggle theme={theme} setTheme={setTheme} />
+              <button onClick={() => (loggedIn ? logout() : navigate('/login'))} className="inline-flex items-center text-xs px-2 py-2 rounded border app-border">
+                {loggedIn ? 'Logout' : 'Login'}
+              </button>
+            </div>
           </aside>
 
           {/* Sidebar mobile drawer */}
@@ -204,24 +254,34 @@ function App() {
                   <NavLink to="/recurring" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Recurring</NavLink>
                   <NavLink to="/transactions" className={({isActive}) => `block px-2 py-1 rounded ${isActive ? 'bg-ink text-white' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>Transactions</NavLink>
                 </nav>
-                <div className="mt-6"><ThemeToggle theme={theme} setTheme={setTheme} /></div>
+                <div className="mt-6 flex items-center justify-between gap-2">
+                  <ThemeToggle theme={theme} setTheme={setTheme} />
+                  <button onClick={() => { setSidebarOpen(false); loggedIn ? logout() : navigate('/login') }} className="inline-flex items-center text-xs px-2 py-2 rounded border app-border">
+                    {loggedIn ? 'Logout' : 'Login'}
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
           <main className="p-4 max-w-6xl mx-auto w-full md:h-screen md:overflow-y-auto flex flex-col">
             <Routes>
-              <Route path="/" element={<DashboardPage {...{summary, loadingSummary, transactions, loadingTx, bills, loadingBills, paychecks, loadingPaychecks, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadPaychecks, reloadAcct, reloadAccounts, acctDisplay, refreshMoney}} />} />
-              <Route path="/accounts" element={<AccountsPage {...{accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts, refreshMoney}} />} />
-              <Route path="/bills" element={<BillsPage {...{bills, loadingBills, postJson, del, reloadBills, reloadSummary, refreshMoney}} />} />
-              <Route path="/recurring" element={<RecurringPage {...{accounts, postJson, patchJson, del, reloadSummary, reloadAcct, reloadTx, reloadBills, reloadPaychecks, refreshMoney}} />} />
-              <Route path="/transactions" element={<TransactionsPage {...{transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks, refreshMoney}} />} />
+              <Route path="/login" element={loggedIn ? <Navigate to="/" replace /> : (
+                <div className="flex items-center justify-center h-[60vh] w-full">
+                  <LoginPage onLoggedIn={() => { setLoggedIn(true); refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true, bills: true, paychecks: true }); navigate('/'); }} />
+                </div>
+              )} />
+              <Route path="/" element={loggedIn ? <DashboardPage {...{summary, loadingSummary, transactions, loadingTx, bills, loadingBills, paychecks, loadingPaychecks, accountSummary, loadingAcct, accounts, postJson, patchJson, del, reloadSummary, reloadTx, reloadBills, reloadPaychecks, reloadAcct, reloadAccounts, acctDisplay, refreshMoney}} /> : <Navigate to="/login" replace />} />
+              <Route path="/accounts" element={loggedIn ? <AccountsPage {...{accountSummary, loadingAcct, accounts, postJson, del, reloadSummary, reloadAcct, reloadAccounts, refreshMoney}} /> : <Navigate to="/login" replace />} />
+              <Route path="/bills" element={loggedIn ? <BillsPage {...{bills, loadingBills, postJson, del, reloadBills, reloadSummary, refreshMoney}} /> : <Navigate to="/login" replace />} />
+              <Route path="/recurring" element={loggedIn ? <RecurringPage {...{accounts, postJson, patchJson, del, reloadSummary, reloadAcct, reloadTx, reloadBills, reloadPaychecks, refreshMoney}} /> : <Navigate to="/login" replace />} />
+              <Route path="/transactions" element={loggedIn ? <TransactionsPage {...{transactions, loadingTx, accounts, postJson, patchJson, del, reloadTx, reloadSummary, reloadAcct, reloadBills, reloadPaychecks, refreshMoney}} /> : <Navigate to="/login" replace />} />
             </Routes>
             <footer className="mt-auto pt-6 text-center text-xs app-muted">Self-hosted • Mobile first • Privacy friendly</footer>
           </main>
         </div>
-      </div>
-    </BrowserRouter>
+  {/* Auth handled via /login route; no modal fallback */}
+    </div>
   )
 }
 
@@ -268,8 +328,13 @@ function AccountForm({ onSubmit }) {
   return (
     <form className="p-4 space-y-2" onSubmit={async (e) => {
       e.preventDefault();
-      await onSubmit({ name, displayName, initialBalance: Number(initialBalance || 0), type });
-  setName(''); setDisplayName(''); setInitialBalance('0.00'); setType('Checking');
+      try {
+        await onSubmit({ name, displayName, initialBalance: Number(initialBalance || 0), type });
+        setName(''); setDisplayName(''); setInitialBalance('0.00'); setType('Checking');
+      } catch (err) {
+        if (/Unauthorized/i.test(String(err))) window.dispatchEvent(new Event('auth:required'))
+        else alert('Failed to add account')
+      }
     }}>
       <Field label="Internal Name">
   <input value={name} onChange={e => setName(e.target.value)} className="w-full border app-border rounded px-3 py-2 app-card" required />
@@ -690,7 +755,7 @@ function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, re
       </Card>
       {/* Add Account Modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Account">
-        <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); setShowAdd(false); refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true }); }} />
+  <AccountForm onSubmit={async (payload) => { await postJson('/api/accounts', payload); setShowAdd(false); refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true }); }} />
       </Modal>
       {/* Set Manual Balance Adjustment Modal */}
       <Modal open={showAdjust} onClose={() => setShowAdjust(false)} title="Set Manual Balance">
@@ -1211,3 +1276,5 @@ function ThemeToggle({ theme, setTheme }) {
     </button>
   )
 }
+
+// LoginPage component moved to separate file: client/src/LoginPage.jsx

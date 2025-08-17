@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   name TEXT UNIQUE NOT NULL,
   display_name TEXT NOT NULL,
   initial_balance REAL NOT NULL DEFAULT 0,
-  archived INTEGER NOT NULL DEFAULT 0
+  archived INTEGER NOT NULL DEFAULT 0,
+  user_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS bills (
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   description TEXT,
   account_id INTEGER NOT NULL,
   recurring_id INTEGER,
+  user_id INTEGER,
   FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );
 
@@ -59,10 +61,17 @@ CREATE TABLE IF NOT EXISTS recurrings (
   start_date TEXT NOT NULL,
   is_recurring INTEGER NOT NULL DEFAULT 1,
   recurring_type TEXT,
-  archived INTEGER NOT NULL DEFAULT 0
+  archived INTEGER NOT NULL DEFAULT 0,
+  user_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_recurrings_type ON recurrings(type);
 CREATE INDEX IF NOT EXISTS idx_recurrings_start ON recurrings(start_date);
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL
+);
 `)
 
 // Progressive migrations for existing databases
@@ -76,6 +85,27 @@ try {
   db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_recurring ON transactions(recurring_id)').run();
 } catch (e) {
   // Ignore; older SQLite might not support some ops in WAL
+}
+
+// Add user_id columns if missing
+try {
+  const aCols = db.prepare("PRAGMA table_info('accounts')").all();
+  const hasUserInAccounts = aCols.some(c => c.name === 'user_id');
+  if (!hasUserInAccounts) db.prepare('ALTER TABLE accounts ADD COLUMN user_id INTEGER').run();
+
+  const tCols = db.prepare("PRAGMA table_info('transactions')").all();
+  const hasUserInTx = tCols.some(c => c.name === 'user_id');
+  if (!hasUserInTx) db.prepare('ALTER TABLE transactions ADD COLUMN user_id INTEGER').run();
+
+  const rCols = db.prepare("PRAGMA table_info('recurrings')").all();
+  const hasUserInR = rCols.some(c => c.name === 'user_id');
+  if (!hasUserInR) db.prepare('ALTER TABLE recurrings ADD COLUMN user_id INTEGER').run();
+
+  db.prepare('CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS idx_recurrings_user ON recurrings(user_id)').run();
+} catch (e) {
+  // best-effort
 }
 
 // Progressive migration: add manual balance reset support to accounts
