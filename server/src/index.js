@@ -114,16 +114,21 @@ apiRouter.patch('/accounts/:id', validate(updateAccountSchema), (req, res, next)
       balance_reset_date: existing.balance_reset_date,
       balance_reset_amount: existing.balance_reset_amount,
     };
-    // If a manual balance reset is requested, set baseline to 0 and insert a Manual Adjustment transaction at the given date
+    // If a manual balance reset is requested, set baseline to 0 and insert a delta so the sum since that date equals the target
     if (balanceResetDate != null && balanceResetAmount != null) {
       next.balance_reset_date = String(balanceResetDate);
       next.balance_reset_amount = 0; // baseline 0 so the adjustment transaction sets the new balance
-      let target = Number(balanceResetAmount);
-      let amt = Math.abs(target);
-      let tType = target >= 0 ? 'Credit' : 'Debit';
-      if (tType === 'Debit') amt = -amt;
-      db.prepare('INSERT INTO transactions(account_id, date, amount, type, status, description) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(existing.id, String(balanceResetDate), amt, tType, 'confirmed', 'Balance Adjustment');
+      const target = Number(balanceResetAmount);
+      // Sum existing transactions on/after the reset date for this account/user
+      const row = db.prepare(
+        'SELECT IFNULL(SUM(amount), 0) as s FROM transactions WHERE account_id=? AND date(date) >= date(?) AND user_id=?'
+      ).get(existing.id, String(balanceResetDate), req.user.id);
+      const existingSum = Number(row?.s || 0);
+      let delta = target - existingSum; // amount to add so total equals target
+      let tType = delta >= 0 ? 'Credit' : 'Debit';
+      if (tType === 'Debit') delta = -Math.abs(delta); else delta = Math.abs(delta);
+      db.prepare('INSERT INTO transactions(account_id, date, amount, type, status, description, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(existing.id, String(balanceResetDate), delta, tType, 'confirmed', 'Balance Adjustment', req.user.id);
     }
     const info = db.prepare('UPDATE accounts SET name=?, display_name=?, type=?, balance_reset_date=?, balance_reset_amount=? WHERE id=? AND user_id=?')
       .run(next.name, next.display_name, next.type, next.balance_reset_date, next.balance_reset_amount, req.params.id, req.user.id);

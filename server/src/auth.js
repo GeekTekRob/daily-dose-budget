@@ -25,11 +25,20 @@ const verifyToken = (token) => {
 
 const authenticate = (req, res, next) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'authorization header required' });
+    if (!authHeader) {
+        console.warn(`[auth] ${req.method} ${req.originalUrl} -> 401 (missing Authorization header)`);
+        return res.status(401).json({ error: 'authorization header required' });
+    }
     const token = authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'token required' });
+    if (!token) {
+        console.warn(`[auth] ${req.method} ${req.originalUrl} -> 401 (missing token after Bearer)`);
+        return res.status(401).json({ error: 'token required' });
+    }
     const payload = verifyToken(token);
-    if (!payload) return res.status(401).json({ error: 'invalid token' });
+    if (!payload) {
+        console.warn(`[auth] ${req.method} ${req.originalUrl} -> 401 (invalid token)`);
+        return res.status(401).json({ error: 'invalid token' });
+    }
     // Attach minimal user info
     req.user = { id: payload.id, username: payload.username };
     next();
