@@ -438,11 +438,23 @@ function AccountInlineEdit({ a, onSaved }) {
       payload.balanceResetAmount = Number(balanceResetAmount)
       payload.balanceResetDate = balanceResetDate
     }
-    await fetch(`${API_URL}/api/accounts/${a.AccountId}`, {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    if (!token) {
+      window.dispatchEvent(new Event('auth:required'))
+      return
+    }
+    const r = await fetch(`${API_URL}/api/accounts/${a.AccountId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(payload)
     })
+    if (!r.ok) {
+      if (r.status === 401) window.dispatchEvent(new Event('auth:required'))
+      throw new Error('Request failed')
+    }
     setOpen(false)
     onSaved && onSaved()
   }
@@ -935,11 +947,14 @@ function AccountsPage({ accountSummary, loadingAcct, accounts, postJson, del, re
         <form className="space-y-3" onSubmit={async (e) => {
           e.preventDefault();
           if (!adjustAcctId) return;
-          await fetch(`${API_URL}/api/accounts/${adjustAcctId}`, {
+          const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+          if (!token) { window.dispatchEvent(new Event('auth:required')); return; }
+          const r = await fetch(`${API_URL}/api/accounts/${adjustAcctId}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({ balanceResetDate: adjustDate, balanceResetAmount: Number(adjustAmount || 0) })
           })
+          if (!r.ok) { if (r.status === 401) window.dispatchEvent(new Event('auth:required')); throw new Error('Request failed'); }
           setShowAdjust(false)
           setAdjustAmount('')
           refreshMoney({ summary: true, accountBalances: true, accountList: true, transactions: true })
