@@ -19,6 +19,55 @@ function localDate(d) {
   return isNaN(dt) ? null : dt;
 }
 
+// Compute next occurrence for a recurring type (matches server/utils.js logic)
+function nextOccurrenceLocal(start, recurringType) {
+  if (!start) return null;
+  const d = (start instanceof Date) ? new Date(start) : localDate(start);
+  if (!d || isNaN(d)) return null;
+  const rt = String(recurringType || '').toLowerCase();
+  if (rt === 'weekly') { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }
+  if (rt === 'bi-weekly' || rt === 'biweekly') { const n = new Date(d); n.setDate(n.getDate() + 14); return n; }
+  if (rt === 'semi-monthly' || rt === 'semimonthly') {
+    const n = new Date(d);
+    const day = n.getDate();
+    if (day < 15) { n.setDate(15); return n; }
+    // first of next month
+    n.setMonth(n.getMonth() + 1, 1);
+    return n;
+  }
+  if (rt === 'annually' || rt === 'yearly') { const n = new Date(d); n.setFullYear(n.getFullYear() + 1); return n; }
+  // default monthly
+  const n = new Date(d);
+  n.setMonth(n.getMonth() + 1);
+  return n;
+}
+
+// Expand paychecks into multiple future occurrence dates (Date objects)
+function expandPaycheckDates(paychecks, today, maxPerRecurring = 3) {
+  const out = [];
+  (Array.isArray(paychecks) ? paychecks : []).forEach(p => {
+    const start = localDate(p.StartDate || p.start_date);
+    if (!start || isNaN(start)) return;
+    const isRec = Boolean(p.IsRecurring || p.is_recurring);
+    const rtype = p.RecurringType || p.recurring_type || '';
+    const amt = Number(p.Amount ?? p.estimated_amount ?? p.estimatedAmount ?? 0) || 0;
+    if (isRec) {
+      // generate up to maxPerRecurring future occurrences
+      let cur = new Date(start);
+      // advance until cur > today
+      let safety = 0;
+      while (cur <= today && safety < 100) { cur = nextOccurrenceLocal(cur, rtype); safety++; }
+      for (let i = 0; i < maxPerRecurring && cur && !isNaN(cur); i++) {
+        if (cur > today) out.push({ date: new Date(cur), amount: amt });
+        cur = nextOccurrenceLocal(cur, rtype);
+      }
+    } else {
+      if (start > today) out.push({ date: new Date(start), amount: amt });
+    }
+  });
+  return out.sort((a,b) => a.date.getTime() - b.date.getTime());
+}
+
 // Format any numeric-ish value as a fixed 2-decimal string (fallback 0.00)
 function formatMoneyStr(v) {
   const n = Number(v);
@@ -534,28 +583,146 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
     return { horizonDays: days, horizonEnd, startOfToday: start };
   }, [paychecks]);
 
-  const dailySpend = useMemo(() => {
+  // Compute adjusted Real Balance: current available after accounting for bills up to the next
+  // paycheck. If those bills exceed current + next paycheck, include the second upcoming
+  // paycheck to cover shortfall if it occurs within 20 days of today. Always clamp >= 0.
+  const adjustedRealBalance = useMemo(() => {
     const real = Number(summary?.realBalance || 0);
-    // If real balance is positive, split ONLY real balance across horizon
-    if (real > 0) return real / horizonDays;
-    // Otherwise include upcoming inflows/outflows within today..horizonEnd
-    const withinHorizon = (dateStr) => {
-      const d = localDate(dateStr);
-      if (isNaN(d)) return false;
-      return d >= startOfToday && d <= horizonEnd;
+    // total available across accounts (do not allow adjusted to exceed this)
+    const totalAvailable = (Array.isArray(accountSummary) ? accountSummary : [])
+      .reduce((s, a) => s + Number(a.Balance ?? a.Balance ?? 0), 0);
+    const today = startOfToday || new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const fallbackMaxDate = new Date(today.getTime() + 20 * msPerDay);
+
+    // Expanded paycheck occurrences with amounts
+    const occ = expandPaycheckDates(paychecks, today, 3) || [];
+    const next = occ[0] || null;
+    const second = occ[1] || null;
+
+    // helper to sum bills before a date (strictly before)
+    const sumBillsBefore = (cutoffDate) => {
+      return (Array.isArray(bills) ? bills : [])
+        .map(b => ({ d: localDate(b.StartDate || b.start_date), amt: Math.abs(Number(b.Amount ?? b.estimated_amount ?? 0)) }))
+        .filter(x => x.d && !isNaN(x.d) && x.d >= today && x.d < cutoffDate)
+        .reduce((s, x) => s + x.amt, 0);
     };
-    const payIn = (Array.isArray(paychecks) ? paychecks : [])
-      .filter(p => withinHorizon(p.StartDate || p.start_date))
-      .reduce((s,p) => s + Math.abs(Number(p.Amount ?? p.estimated_amount ?? 0)), 0);
-    const billsOut = (Array.isArray(bills) ? bills : [])
-      .filter(b => withinHorizon(b.StartDate || b.start_date))
-      .reduce((s,b) => s + Math.abs(Number(b.Amount ?? b.estimated_amount ?? 0)), 0);
-    const spendable = real + payIn - billsOut;
-    return spendable / horizonDays;
-  }, [summary?.realBalance, paychecks, bills, horizonDays, horizonEnd, startOfToday]);
+
+    // helper to sum bills on/after a date up to an upper bound (inclusive)
+    const sumBillsOnOrAfterTo = (startDate, upperDate) => {
+      return (Array.isArray(bills) ? bills : [])
+        .map(b => ({ d: localDate(b.StartDate || b.start_date), amt: Math.abs(Number(b.Amount ?? b.estimated_amount ?? 0)) }))
+        .filter(x => x.d && !isNaN(x.d) && x.d >= startDate && x.d <= upperDate)
+        .reduce((s, x) => s + x.amt, 0);
+    };
+
+    // No upcoming paycheck -> consider bills up to 20 days
+    if (!next) {
+      const billsUpTo = sumBillsOnOrAfterTo(today, fallbackMaxDate);
+  return Math.min(totalAvailable, real - billsUpTo);
+    }
+
+    // Bills strictly before next paycheck
+    const billsBeforeNext = sumBillsBefore(next.date);
+    const baseAfterBeforeNext = real - billsBeforeNext;
+
+    // Determine evaluation window for bills/paychecks on/after next (second paycheck date or 20 days)
+    const upperForAfterNext = (second && second.date && second.date <= fallbackMaxDate) ? second.date : fallbackMaxDate;
+
+    // Sum bills and paychecks within [next.date .. upperForAfterNext]
+    const billsBetween = sumBillsOnOrAfterTo(next.date, upperForAfterNext);
+    const payInBetween = occ
+      .filter(p => p.date && p.date >= next.date && p.date <= upperForAfterNext)
+      .reduce((s, p) => s + Math.abs(Number(p.amount || 0)), 0);
+
+    const netBetween = payInBetween - billsBetween;
+    const adjusted = baseAfterBeforeNext + (netBetween < 0 ? netBetween : 0);
+    return Math.min(totalAvailable, adjusted);
+  }, [summary?.realBalance, paychecks, bills, startOfToday, accountSummary]);
+
+  const dailySpend = useMemo(() => {
+    // Use the same Real Balance shown on the card (server value preferred)
+    const base = Number((summary?.adjustedRealBalance ?? adjustedRealBalance) || 0);
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const today = startOfToday || new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+
+    // If balance is not positive right now, you shouldn't spend -> 0 per requirement
+    if (base <= 0) return 0;
+
+    const occ = expandPaycheckDates(paychecks, today, 6) || [];
+    const fallbackMax = new Date(today.getTime() + 20 * msPerDay);
+    const nextPay = occ.length ? occ[0].date : null;
+    const targetDate = nextPay ? (nextPay < fallbackMax ? nextPay : fallbackMax) : fallbackMax;
+
+    const endDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+    const days = Math.max(1, Math.round((endDay - today) / msPerDay));
+    return Math.max(0, base / days);
+  }, [summary?.adjustedRealBalance, adjustedRealBalance, paychecks, startOfToday]);
 
   // Show most recent transactions (both debits and credits), so Manual Adjustments are included
   const recentTx = useMemo(() => (transactions || []).slice(0, 20), [transactions]);
+
+  // Compute upcoming bills to show on the Dashboard: only bills due between today
+  // and the second upcoming paycheck (exclusive). If only one upcoming paycheck
+  // exists we use that paycheck as the upper bound (exclusive). If no paychecks
+  // are loaded, fall back to the next 15 days. Limit to the next 5 items.
+  const upcomingBills = useMemo(() => {
+  const today = startOfToday || new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  const msPerDay = 24 * 60 * 60 * 1000;
+  // Expand paychecks into multiple future dates to account for recurring schedules
+  const payDates = (expandPaycheckDates(paychecks, today, 3) || []).map(p => (p && p.date) ? p.date : p);
+  // initial upper bound: second upcoming paycheck, or first, or 20 days
+  let initialUpper;
+  if (payDates.length >= 2) initialUpper = payDates[1];
+  else if (payDates.length === 1) initialUpper = payDates[0];
+  else initialUpper = new Date(today.getTime() + 20 * msPerDay);
+
+    const allBills = Array.isArray(bills) ? bills : [];
+    const inWindow = (dateStr, up) => {
+      const d = localDate(dateStr);
+      if (isNaN(d)) return false;
+      return d >= today && d <= up;
+    };
+
+    const sortByDate = (arr) => arr.sort((a,b) => new Date((a.StartDate || a.start_date)).getTime() - new Date((b.StartDate || b.start_date)).getTime());
+
+    // Try primary window first
+    let filtered = sortByDate(allBills.filter(b => inWindow(b.StartDate || b.start_date, initialUpper)));
+    if (filtered.length >= 5) return filtered.slice(0,5);
+
+  // Not enough items: extend to third paycheck or 30 days as a second pass
+  let extendedUpper = null;
+  if (payDates.length >= 3) extendedUpper = payDates[2];
+  else extendedUpper = new Date(today.getTime() + 30 * msPerDay);
+
+    // Ensure extendedUpper is at least as large as initialUpper
+    if (extendedUpper.getTime() < initialUpper.getTime()) extendedUpper = initialUpper;
+
+    filtered = sortByDate(allBills.filter(b => inWindow(b.StartDate || b.start_date, extendedUpper)));
+    return filtered.slice(0,5);
+  }, [bills, paychecks, startOfToday]);
+
+  // Client-side upcoming total: sum of bills due from today up to the paycheck after next
+  const upcomingTotalClient = useMemo(() => {
+  const today = startOfToday || new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const payDates = (expandPaycheckDates(paychecks, today, 3) || []).map(p => (p && p.date) ? p.date : p);
+  // upper bound is the paycheck after next (second future paycheck), or the first if only one, or today+20d
+  let upper;
+  if (payDates.length >= 2) upper = payDates[1];
+  else if (payDates.length === 1) upper = payDates[0];
+  else upper = new Date(today.getTime() + 20 * msPerDay);
+
+    const allBills = Array.isArray(bills) ? bills : [];
+    const total = allBills
+      .filter(b => {
+        const d = localDate(b.StartDate || b.start_date);
+        if (isNaN(d)) return false;
+        return d >= today && d <= upper;
+      })
+      .reduce((s,b) => s + Math.abs(Number(b.Amount ?? b.estimated_amount ?? 0)), 0);
+    return total;
+  }, [bills, paychecks, startOfToday]);
 
   return (
     <div>
@@ -563,21 +730,27 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Card
           title="Real Balance"
-          value={loadingSummary ? '—' : currency(summary?.realBalance || 0)}
+          value={loadingSummary ? '—' : currency((summary?.adjustedRealBalance ?? adjustedRealBalance) || 0)}
           accent="green"
-          titleHelp="Current balance minus upcoming bills scheduled today or later."
-        />
+          titleHelp="Current available balance after accounting for upcoming bills through next paycheck (and shortfall handling)."
+        >
+          {summary?.shortfallUsed ? (
+            <div className="px-4 py-2 text-xs app-muted">
+              Shortfall window: {summary.shortfallWindowStart} → {summary.shortfallWindowEnd}
+            </div>
+          ) : null}
+        </Card>
         <Card
           title="Daily Spend"
-          value={loadingSummary ? '—' : currency(dailySpend)}
+          value={loadingSummary ? '—' : currency((summary?.dailySpend ?? dailySpend) || 0)}
           accent="purple"
-          titleHelp="Estimated amount you can spend per day until the sooner of the next paycheck or month end."
+          titleHelp="Estimated amount you can spend per day until the next paycheck that makes net positive (or 20 days)."
         />
         <Card
           title="Bills (Upcoming)"
-          value={loadingSummary ? '—' : currency(summary?.upcomingTotal || 0)}
+          value={loadingSummary ? '—' : currency(upcomingTotalClient || 0)}
           accent="red"
-          titleHelp="Sum of upcoming bills on or after today."
+          titleHelp="Sum of upcoming bills due between today and the paycheck after next."
         />
       </section>
 
@@ -617,7 +790,7 @@ function DashboardPage({ summary, loadingSummary, transactions, loadingTx, bills
         <div className="space-y-3">
           <Card title="Upcoming Bills" titleAction={<NavLink to="/recurring" className="hover:underline">View →</NavLink>}>
             <List
-              items={bills}
+              items={upcomingBills}
               empty="No upcoming bills"
               renderItem={b => (
                 <div className="flex items-center justify-between gap-3">
