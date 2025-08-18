@@ -396,7 +396,54 @@ apiRouter.patch('/recurrings/:id', validate(updateRecurringSchema), (req, res, n
 apiRouter.get('/summary', (req, res, next) => {
   try {
     const today = dayjs().format('YYYY-MM-DD');
-    const summary = db.prepare(`
+    // Expand paychecks into future occurrences and choose the paycheck-after-next (2nd future occurrence).
+    const rows = db.prepare(`
+      SELECT id, start_date, is_recurring, recurring_type, estimated_amount
+      FROM recurrings
+      WHERE archived=0 AND type='Paycheck' AND user_id = ?
+      ORDER BY start_date
+    `).all(req.user.id);
+
+    // Helper to get next occurrence using server-side nextOccurrence function
+    const expandOccurrences = (startDate, recurringType, maxPer = 3) => {
+      const out = [];
+      let cur = startDate;
+      // advance until cur > today
+      let safety = 0;
+      while (dayjs(cur).isSame(dayjs(today)) || dayjs(cur).isBefore(dayjs(today))) {
+        cur = nextOccurrence(cur, recurringType);
+        safety++;
+        if (safety > 200) break;
+      }
+      for (let i = 0; i < maxPer; i++) {
+        if (!cur) break;
+        out.push(cur);
+        cur = nextOccurrence(cur, recurringType);
+      }
+      return out;
+    };
+
+    // Build paycheck occurrence objects with amounts: [{ date: dayjs, amount: number }]
+    let occurrencesObj = [];
+    rows.forEach(r => {
+      const start = r.start_date;
+      const amt = Math.abs(Number(r.estimated_amount || 0));
+      if (r.is_recurring) {
+        const fut = expandOccurrences(start, r.recurring_type, 3);
+        fut.forEach(d => { if (dayjs(d).isAfter(dayjs(today))) occurrencesObj.push({ date: dayjs(d), amount: amt }); });
+      } else {
+        if (dayjs(start).isAfter(dayjs(today))) occurrencesObj.push({ date: dayjs(start), amount: amt });
+      }
+    });
+    occurrencesObj.sort((a, b) => a.date.valueOf() - b.date.valueOf());
+    const occurrences = occurrencesObj.map(o => o.date.format('YYYY-MM-DD'));
+
+    let upperDate = null;
+    if (occurrences.length >= 2) upperDate = occurrences[1];
+    else if (occurrences.length === 1) upperDate = occurrences[0];
+    else upperDate = dayjs().add(20, 'day').format('YYYY-MM-DD');
+
+  const summary = db.prepare(`
       SELECT
         (
           SELECT SUM(Balance)
@@ -413,16 +460,92 @@ apiRouter.get('/summary', (req, res, next) => {
           )
         ) as currentBalance,
         (
-          SELECT SUM(estimated_amount)
+          SELECT IFNULL(SUM(estimated_amount), 0)
           FROM recurrings
-          WHERE archived=0 AND type='Bill' AND date(start_date) >= date(?) AND user_id = ?
+          WHERE archived=0 AND type='Bill' AND date(start_date) >= date(?) AND date(start_date) <= date(?) AND user_id = ?
         ) as upcomingTotal
-    `).get(req.user.id, req.user.id, req.user.id, today, req.user.id);
+    `).get(req.user.id, req.user.id, req.user.id, today, upperDate, req.user.id);
+
+    // Also return the upper bound used for upcomingTotal and the count of bills in that window
+    const billCountRow = db.prepare(`
+      SELECT COUNT(*) as c
+      FROM recurrings
+      WHERE archived=0 AND type='Bill' AND date(start_date) >= date(?) AND date(start_date) <= date(?) AND user_id = ?
+    `).get(today, upperDate, req.user.id);
+
+    const currentBalance = Number(summary.currentBalance || 0);
+    const realBalance = currentBalance - Number(summary.upcomingTotal || 0);
+
+    // Build bills list once for fine-grained date window sums
+    const billRows = db.prepare(`
+      SELECT start_date, estimated_amount
+      FROM recurrings
+      WHERE archived=0 AND type='Bill' AND user_id = ?
+    `).all(req.user.id);
+
+    const t0 = dayjs(today);
+    const fallbackMax = t0.add(20, 'day');
+    const nextObj = occurrencesObj[0] || null;
+    const secondObj = occurrencesObj[1] || null;
+
+    const sumBillsBetween = (startInclusive, endInclusive) => {
+      return billRows
+        .map(b => ({ d: dayjs(b.start_date), amt: Math.abs(Number(b.estimated_amount || 0)) }))
+        .filter(x => (x.d.isSame(startInclusive) || x.d.isAfter(startInclusive)) && (x.d.isSame(endInclusive) || x.d.isBefore(endInclusive) || x.d.isSame(endInclusive)))
+        .reduce((s, x) => s + x.amt, 0);
+    };
+    const sumBillsBefore = (cutoff) => {
+      return billRows
+        .map(b => ({ d: dayjs(b.start_date), amt: Math.abs(Number(b.estimated_amount || 0)) }))
+        .filter(x => (x.d.isAfter(t0) || x.d.isSame(t0)) && x.d.isBefore(cutoff))
+        .reduce((s, x) => s + x.amt, 0);
+    };
+
+    // adjustedRealBalance per client logic but computed from currentBalance directly
+    let adjustedRealBalance = 0;
+    let shortfallUsed = false;
+    let shortfallWindowStart = null;
+    let shortfallWindowEnd = null;
+    if (!nextObj) {
+      const billsUpTo = sumBillsBetween(t0, fallbackMax);
+      adjustedRealBalance = currentBalance - billsUpTo;
+    } else {
+      const billsBeforeNext = sumBillsBefore(nextObj.date);
+      const baseAfterBeforeNext = currentBalance - billsBeforeNext;
+      const upperForAfterNext = (secondObj && secondObj.date.isBefore(fallbackMax) || secondObj && secondObj.date.isSame(fallbackMax)) ? secondObj.date : fallbackMax;
+      const billsBetweenNextAndUpper = sumBillsBetween(nextObj.date, upperForAfterNext);
+      const payInBetween = occurrencesObj
+        .filter(p => (p.date.isAfter(nextObj.date) || p.date.isSame(nextObj.date)) && (p.date.isBefore(upperForAfterNext) || p.date.isSame(upperForAfterNext)))
+        .reduce((s, p) => s + Math.abs(Number(p.amount || 0)), 0);
+      const netBetween = payInBetween - billsBetweenNextAndUpper;
+      adjustedRealBalance = baseAfterBeforeNext + (netBetween < 0 ? netBetween : 0);
+      shortfallUsed = netBetween < 0;
+      shortfallWindowStart = nextObj.date.format('YYYY-MM-DD');
+      shortfallWindowEnd = upperForAfterNext.format('YYYY-MM-DD');
+    }
+    // Cap upper bound to currentBalance (available non-savings balances)
+    if (adjustedRealBalance > currentBalance) adjustedRealBalance = currentBalance;
+
+    // dailySpend: divide adjustedRealBalance by days to next paycheck (or 20 days)
+    let dailySpend = 0;
+    if (adjustedRealBalance > 0) {
+      const nextDate = occurrencesObj[0]?.date || null;
+      const target = nextDate ? (nextDate.isBefore(fallbackMax) ? nextDate : fallbackMax) : fallbackMax;
+      const days = Math.max(1, target.startOf('day').diff(t0.startOf('day'), 'day'));
+      dailySpend = Math.max(0, adjustedRealBalance / days);
+    }
 
     res.json({
-      currentBalance: summary.currentBalance || 0,
+      currentBalance,
       upcomingTotal: summary.upcomingTotal || 0,
-      realBalance: (summary.currentBalance || 0) - (summary.upcomingTotal || 0)
+      realBalance,
+      adjustedRealBalance,
+      dailySpend,
+      shortfallUsed,
+      shortfallWindowStart,
+      shortfallWindowEnd,
+      upcomingUpperDate: upperDate,
+      upcomingCount: billCountRow ? billCountRow.c || 0 : 0
     });
   } catch (e) {
     next(e);

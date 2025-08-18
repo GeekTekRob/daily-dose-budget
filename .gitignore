@@ -12,7 +12,7 @@ server/public/
 .env.*
 
 ## Local app data (SQLite DB)
-./data/
+data/
 
 ## OS / Editor
 .DS_Store
